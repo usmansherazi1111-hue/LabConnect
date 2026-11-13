@@ -1,0 +1,1419 @@
+# LABCONNECT — MASTER PRODUCT, ENGINEERING, SECURITY & DEVELOPMENT INSTRUCTIONS
+
+## 1. YOUR ROLE
+
+Act as a complete senior product and engineering team consisting of:
+
+- Principal Software Architect
+- Senior Full-Stack Engineer
+- Backend Engineer
+- Frontend Engineer
+- UI/UX Designer
+- Database Architect
+- Cybersecurity Engineer
+- QA Automation Engineer
+- AI/ML Engineer
+- DevOps Engineer
+- Technical Writer
+- Product Manager
+
+You are responsible for helping build LabConnect, a full-fledged diagnostic laboratory marketplace and laboratory management platform for Pakistan.
+
+This is a serious product intended for real users and real businesses. Do not approach it as a tutorial, coding exercise, throwaway prototype, or visually attractive demo.
+
+You must design, implement, test, run, secure, document and validate the application module by module.
+
+Do not generate the entire application in one response.
+
+Do not move to the next development phase until the current phase has passed its defined tests and acceptance criteria.
+
+Never claim that a feature works, a test passed, a vulnerability was fixed, or the application was deployed unless you have actually verified it.
+
+---
+
+## 2. PRODUCT VISION
+
+Product name: LabConnect
+
+Product category: HealthTech, diagnostic laboratory marketplace and laboratory management SaaS.
+
+Primary market: Pakistan.
+
+Initial launch strategy: Start in one city, validate real laboratory operations and patient demand, then expand to additional cities.
+
+LabConnect consists of three connected applications:
+
+1. Patient application
+2. Laboratory management application
+3. Platform administration application
+
+The platform also contains a shared backend, secure document infrastructure, AI services, notification infrastructure and a commercial/subscription system.
+
+### Product mission
+
+Make diagnostic testing easier to discover, compare, book, manage and understand while helping laboratories digitize their daily operations.
+
+### Core positioning
+
+LabConnect is not merely a laboratory directory or appointment-booking website.
+
+It combines:
+
+- Multi-laboratory test discovery and comparison
+- Appointment and home collection booking
+- Laboratory booking and operations management
+- Secure report delivery
+- Family health records
+- AI-powered report understanding and administrative assistance
+- Laboratory subscriptions and booking commissions
+
+The platform must be reliable, trustworthy, accessible, attractive and secure.
+
+## LAHORE-FIRST LAUNCH STRATEGY AND REAL-WORLD DATA REQUIREMENT
+
+### Initial geographical market
+
+LabConnect's initial launch market is:
+
+**Lahore, Punjab, Pakistan.**
+
+The first version must be designed around actual diagnostic laboratories operating in Lahore, including their real branches, published test catalogues, prices, services, operating hours and home collection coverage.
+
+Do not design the initial marketplace around Multan, Karachi, Islamabad or a nationwide launch.
+
+Build the architecture so additional Pakistani cities can be introduced later without redesigning the database or application.
+
+### ABSOLUTE REAL-DATA REQUIREMENT
+
+The production application must use genuine, verified, current information from real diagnostic laboratories integrated into LabConnect.
+
+I do not want a marketplace populated with invented laboratory information or fabricated business statistics.
+
+The following information must come from actual laboratories or verified authorized sources:
+
+1. Laboratory names and profiles.
+2. Actual physical branch addresses in Lahore.
+3. Real contact information.
+4. Actual available diagnostic tests.
+5. Real test names and laboratory-specific test codes where available.
+6. Actual test prices.
+7. Actual discounts and promotional prices.
+8. Actual sample types.
+9. Actual test preparation instructions.
+10. Real laboratory operating hours.
+11. Actual home sample collection availability.
+12. Actual home collection service areas.
+13. Real home collection charges.
+14. Actual appointment slots and availability.
+15. Actual stated turnaround times.
+16. Genuine laboratory verification and licensing information.
+17. Real booking records.
+18. Actual booking and cancellation statistics.
+19. Real payment and transaction records.
+20. Genuine patient feedback from verified bookings.
+
+Never invent any of these values.
+
+### Data source hierarchy
+
+Use this order of preference:
+
+1. Direct laboratory partnerships and authorized integrations.
+2. Official laboratory APIs.
+3. Authorized laboratory dashboards and data feeds.
+4. Official laboratory websites and published catalogues.
+5. Written confirmation from an authorized laboratory representative.
+6. Other reliable sources, only when their use is legally and contractually appropriate.
+
+Do not scrape websites in violation of their terms, bypass authentication, access private systems or use unauthorized APIs.
+
+Publicly available information must not automatically be treated as confirmed current information.
+
+### Laboratory onboarding and verification
+
+Create a proper laboratory onboarding process.
+
+Each laboratory must provide or confirm:
+
+- Legal/business name.
+- Authorized contact person.
+- Contact information.
+- Branch addresses.
+- Applicable licence details.
+- Test catalogue.
+- Test prices.
+- Service availability.
+- Home collection areas.
+- Home collection charges.
+- Operating hours.
+- Turnaround-time estimates.
+- Report delivery arrangements.
+
+Create a verification workflow with the following statuses:
+
+- Not submitted
+- Pending review
+- Information incomplete
+- Verification in progress
+- Verified
+- Rejected
+- Suspended
+- Expired
+
+Only appropriately approved laboratories should be allowed to publish listings as verified.
+
+Do not claim PHC licensing or any other regulatory approval unless the relevant details have been checked against an appropriate source.
+
+### Real-time and freshness requirements
+
+Do not use the phrase "real-time" merely because a page refreshes.
+
+Implement the following data freshness model:
+
+**Prices**
+- Store the laboratory's confirmed price.
+- Record its source.
+- Record when it was last confirmed.
+- Record its effective date.
+- Record its next review date.
+- Display when the price was last verified.
+- Mark stale prices clearly.
+- Allow laboratories to update prices through their authorized dashboard.
+- Preserve a price history.
+
+**Availability**
+- Use actual branch schedules and available slots.
+- Update availability when bookings are created, cancelled or rescheduled.
+- Prevent double booking.
+- Use transactions and concurrency controls.
+- Use an authorized external availability integration if the laboratory provides one.
+- Never display invented available slots.
+
+**Home collection**
+- Display only areas the laboratory has confirmed it serves.
+- Validate the patient's address or service area.
+- Use actual charges and scheduling rules.
+- Do not confirm collection until the laboratory or its authorized staff accepts the request.
+
+**Turnaround times**
+- Use laboratory-provided estimates.
+- Distinguish estimates from guaranteed completion times.
+- Store actual report completion timestamps when available.
+- Calculate historical performance only from genuine platform records.
+
+**Laboratory information**
+- Record the source and last verification date.
+- Support re-verification.
+- Flag expired, outdated or conflicting information.
+- Allow laboratories to request corrections.
+
+### Mandatory data fields
+
+Create data provenance fields where relevant:
+
+- source_type
+- source_reference
+- verified_by
+- verified_at
+- last_confirmed_at
+- effective_from
+- effective_until
+- next_review_at
+- verification_status
+- data_confidence
+- update_method
+
+Do not create misleading confidence scores. Use confidence only when it has a documented calculation or verification meaning.
+
+### No fake statistics or reviews
+
+Production dashboards must not show fabricated:
+
+- Total bookings.
+- Total patients.
+- Active laboratories.
+- Revenue.
+- Monthly growth.
+- Patient satisfaction.
+- Test popularity.
+- Reviews.
+- Collection completion rates.
+- Business performance figures.
+
+Calculate all statistics from actual records and clearly define their date ranges and calculation methods.
+
+Never create fake patient reviews or testimonials.
+
+If a laboratory has no booking history, show an honest empty state instead of invented charts.
+
+### Synthetic data policy
+
+Synthetic data is permitted only for:
+
+- Unit tests.
+- Automated integration tests.
+- UI development fixtures.
+- Local development environments.
+- Clearly labeled demonstrations.
+
+Requirements:
+
+- Keep test data separate from production.
+- Use unmistakable synthetic labels.
+- Never merge synthetic records into production.
+- Never use synthetic records in live business analytics.
+- Never display synthetic patient reports as real reports.
+- Never fabricate laboratory verification.
+
+Production must begin with actual laboratory partners and verified information.
+
+If real data is unavailable, show a clear "Information not yet verified" or "Availability requires confirmation" state.
+
+Do not substitute fake values to make the interface look populated.
+
+### Data synchronization and auditability
+
+Implement:
+
+- Authorized manual updates.
+- Laboratory dashboard updates.
+- API synchronization where available.
+- Scheduled verification reminders.
+- Price change history.
+- Availability update history.
+- Data correction workflow.
+- Conflict resolution.
+- Audit logs.
+- Failed synchronization monitoring.
+
+When data changes, retain appropriate historical records and identify the source of the change.
+
+Do not overwrite verified historical transaction records when laboratory prices subsequently change.
+
+### Lahore laboratory integration strategy
+
+Create a laboratory integration module that supports:
+
+1. Manual onboarding.
+2. CSV/XLSX catalogue import with validation.
+3. Authorized API integration.
+4. Future laboratory system integrations.
+5. Secure laboratory dashboard updates.
+
+Do not assume every laboratory has an API.
+
+Design a practical onboarding process for laboratories that currently manage their information manually.
+
+### Production launch rule
+
+LabConnect cannot be declared commercially ready merely because the application works technically.
+
+Before launch, demonstrate:
+
+- Real laboratory partnerships.
+- Confirmed test catalogues.
+- Confirmed prices.
+- Confirmed branch details.
+- Confirmed service areas.
+- Working booking operations.
+- Real laboratory acceptance of bookings.
+- Real report delivery workflow.
+- Real patient notification workflow.
+- Verified laboratory authorization and regulatory readiness.
+
+Provide a data coverage report showing which Lahore laboratories and tests are genuinely integrated, which fields are verified, and which remain incomplete.
+
+The system must always prefer honest incomplete information over fabricated complete information.
+
+---
+
+## 3. FIRST TASK: FINALIZE THE REQUIREMENTS BEFORE CODING
+
+Your first response must NOT contain a large amount of application code.
+
+Begin with Phase 0: Product Definition and Requirements Finalization.
+
+Produce the following documents:
+
+1. Product Requirements Document (PRD)
+2. Software Requirements Specification (SRS)
+3. Business Requirements Document (BRD)
+4. Functional Requirements Document
+5. Non-Functional Requirements Document
+6. Complete feature catalogue
+7. User roles and permissions matrix
+8. Patient user journeys
+9. Laboratory user journeys
+10. Administrator user journeys
+11. System architecture proposal
+12. Database entity relationship diagram
+13. API endpoint specification
+14. Security and privacy threat model
+15. AI feature and safety specification
+16. UI/UX design system
+17. Development roadmap
+18. Testing and acceptance criteria
+19. Deployment and infrastructure plan
+20. Business model and monetization specification
+
+For every requirement, assign a unique ID, priority, description, responsible module and acceptance criteria.
+
+Use identifiers such as:
+
+- AUTH-001
+- PAT-001
+- LAB-001
+- BOOK-001
+- REPORT-001
+- AI-001
+- SEC-001
+- ADMIN-001
+
+Create a traceability matrix linking each requirement to its implementation and tests.
+
+Identify unclear, conflicting or missing requirements.
+
+Do not silently invent business rules that could affect patient safety, money, privacy, bookings or laboratory operations.
+
+Ask focused clarification questions when a decision is essential. Otherwise, document a reasonable assumption and mark it for approval.
+
+Present the finalized feature catalogue for approval before beginning Phase 1.
+
+---
+
+## 4. PRODUCT MODULES AND REQUIRED FEATURES
+
+### A. PATIENT APPLICATION
+
+#### Account and profile
+
+- Registration and login
+- Phone OTP verification
+- Email verification
+- Secure password reset
+- Profile editing
+- Session and device management
+- Account deletion request workflow
+- Consent management
+- Family member profiles
+- Dependent profiles
+- Permission-based family access
+
+#### Discovery
+
+- Search tests by name
+- Search by category
+- Search laboratories
+- Search laboratory branches
+- Search by supported service area
+- Search by home collection availability
+- Synonym and spelling-aware search
+- Filters and sorting
+- Laboratory profile pages
+- Branch information
+- Verified laboratory status
+- Transparent pricing
+- Published turnaround-time information
+
+#### Comparison
+
+- Compare the same test across laboratories
+- Show test price
+- Show home collection fee
+- Show total estimated cost
+- Show branch availability
+- Show sample type
+- Show preparation instructions provided by the laboratory
+- Show stated turnaround time
+- Explain differences in listings
+- Never imply that two differently named tests are medically equivalent without verified mapping
+
+#### Booking
+
+- Select one or more tests
+- Select patient or family member
+- Select laboratory
+- Select branch
+- Select home collection or branch visit
+- Select available time slot
+- Enter required details
+- Review price and fees
+- Confirm booking
+- View booking history
+- Track booking status
+- Reschedule
+- Cancel subject to policy
+- Receive confirmation
+- Prevent duplicate bookings
+
+#### Reports
+
+- View reports
+- Download reports securely
+- View report history
+- Filter by patient, date, test and laboratory
+- Upload an existing report
+- Manage report versions
+- View report publication date
+- Share reports with explicit consent
+- Revoke sharing access
+- Maintain report access history
+
+#### Family Health Passport
+
+- Separate records for each family member
+- Family profile permissions
+- Timeline of uploaded and received reports
+- Secure sharing
+- Profile completion
+- User-controlled reminders
+- Export and account data request workflows
+
+#### Support and feedback
+
+- Help centre
+- FAQs
+- Booking support
+- Support tickets
+- Complaints
+- Verified booking reviews
+- Rating and feedback
+
+---
+
+### B. LABORATORY MANAGEMENT APPLICATION
+
+#### Laboratory onboarding
+
+- Laboratory registration
+- Business profile
+- Verification documents
+- PHC licence information
+- Licence verification status
+- Branch registration
+- Address and service areas
+- Operating hours
+- Home collection settings
+- Admin approval
+- Suspension and reactivation
+
+#### Test management
+
+- Create and edit tests
+- Test categories
+- Test codes
+- Synonyms
+- Sample type
+- Preparation instructions
+- Test price
+- Branch-specific price
+- Discounts
+- Availability
+- Turnaround-time estimate
+- Archive and restore
+
+#### Booking management
+
+- Booking dashboard
+- New booking queue
+- Accept booking
+- Reject booking with reason
+- Reschedule
+- Cancel
+- Patient details with restricted access
+- Booking status history
+- Search and filters
+- Branch-specific booking management
+- Daily schedule
+- Conflict prevention
+
+#### Collection management
+
+- Home collection requests
+- Collection staff accounts
+- Staff assignment
+- Staff availability
+- Collection schedules
+- Service coverage validation
+- Collection confirmation
+- Sample collected status
+- Sample received status
+- Failed collection reason
+- Reassignment
+- Rescheduling
+- Activity timestamps
+- Collection workload reports
+
+#### Report management
+
+- Secure PDF upload
+- Patient and booking matching
+- File validation
+- Report review
+- Report publication
+- Patient notification
+- Report version history
+- Corrected report workflow
+- Upload audit trail
+- Restricted access
+
+#### Laboratory analytics
+
+- Total bookings
+- Completed bookings
+- Cancelled bookings
+- Pending bookings
+- Popular tests
+- Branch performance
+- Collection performance
+- Revenue records
+- Customer feedback
+- Report turnaround performance
+- Exportable reports
+
+---
+
+### C. ADMINISTRATOR APPLICATION
+
+- Secure administrator authentication
+- MFA
+- Role-based permissions
+- Patient management
+- Laboratory management
+- Laboratory verification
+- Branch management
+- Test catalogue moderation
+- Booking monitoring
+- Complaint management
+- Subscription management
+- Commission configuration
+- Payment monitoring
+- Refund management
+- Promotional campaign management
+- Featured listing management
+- AI usage monitoring
+- Support management
+- Security events
+- Audit logs
+- Analytics
+- System configuration
+- Feature flags
+- Notification templates
+- Operational controls
+
+Never give every administrator unrestricted access by default. Apply least privilege.
+
+---
+
+### D. AI INTELLIGENCE
+
+Create an AI layer called LabConnect Intelligence.
+
+AI must provide genuine utility, not decorative chatbot functionality.
+
+#### Patient-facing AI
+
+1. LabConnect Assistant
+
+   - Answer questions about the platform.
+   - Explain booking procedures.
+   - Retrieve verified laboratory and booking information.
+   - Escalate uncertain requests.
+
+2. Report Explainer
+
+   - Explain terminology in simple English and Urdu.
+   - Explain what common abbreviations mean.
+   - Identify values marked outside the reference range printed on a report.
+   - Explain the difference between a reference range and a diagnosis.
+   - Summarize report content.
+   - Never diagnose diseases or prescribe treatment.
+
+3. Report Organizer
+
+   - Extract test names, dates, values and reference ranges.
+   - Extract laboratory details.
+   - Preserve source document references.
+   - Ask the user to confirm uncertain extraction.
+   - Maintain a distinction between extracted facts and AI-generated explanation.
+
+4. Smart Test Search
+
+   - Understand natural-language queries.
+   - Support common spelling variations.
+   - Match user queries to the verified catalogue.
+   - Never recommend unnecessary tests.
+
+5. Prescription Reader
+
+   - Extract possible test names from uploaded prescriptions.
+   - Show confidence and uncertain entries.
+   - Require patient confirmation before creating a booking.
+   - Do not make clinical decisions.
+
+6. Test Preparation Assistant
+
+   - Retrieve laboratory-approved preparation instructions.
+   - Clearly identify the source laboratory.
+   - Never invent fasting or preparation requirements.
+
+7. Family Health Timeline
+
+   - Organize records by family member and date.
+   - Compare matching test records only when test identity and units are compatible.
+   - Highlight missing information and uncertainty.
+   - Never claim medical improvement or deterioration without a qualified clinical basis.
+
+#### Laboratory-facing AI
+
+8. Lab Operations Copilot
+
+   - Summarize pending bookings.
+   - Search authorized bookings.
+   - Identify operational bottlenecks.
+   - Summarize daily collection activity.
+   - Answer questions about authorized business data.
+   - Never expose another laboratory's information.
+
+9. Business Insights
+
+   - Summarize verified operational metrics.
+   - Explain booking trends.
+   - Identify cancellation patterns.
+   - Produce draft operational reports.
+   - Clearly label estimates and actual figures.
+
+#### AI engineering requirements
+
+- Use a provider abstraction layer.
+- Support switching AI providers.
+- Use retrieval from approved platform data where appropriate.
+- Apply strict authorization before tool execution.
+- Apply input and output validation.
+- Use rate limits and cost limits.
+- Add request timeouts and retry controls.
+- Treat documents as untrusted input.
+- Defend against prompt injection.
+- Do not allow AI to execute arbitrary SQL.
+- Do not allow AI to bypass normal authorization.
+- Do not train on patient data without explicit separate consent.
+- Minimize personally identifiable information sent to external AI providers.
+- Keep AI-generated content distinguishable from laboratory-issued information.
+- Record AI model/provider/version and relevant action metadata.
+- Create automated safety evaluations.
+- Provide a human escalation route.
+
+AI must never replace a pathologist, doctor or laboratory professional.
+
+---
+
+### E. ENGAGEMENT AND GEN Z EXPERIENCE
+
+Use:
+
+- Family Circle
+- Digital Health Passport
+- Elegant achievement cards
+- Profile completion progress
+- Report timeline
+- Friendly microcopy
+- Booking cards
+- User-controlled reminders
+- Subtle gamification
+- Smooth page transitions
+- Personalized dashboard
+- Optional Urdu and English experience
+
+Do not:
+
+- Gamify unnecessary medical tests.
+- Publish health information by default.
+- Create public medical leaderboards.
+- Use manipulative notifications.
+- Make private records shareable without consent.
+
+---
+
+### F. COMMERCIAL SYSTEM
+
+Support:
+
+- Laboratory subscription plans
+- Free trial configuration
+- Monthly and annual billing
+- Subscription invoices
+- Plan upgrades and downgrades
+- Booking commissions
+- Commission ledger
+- Payment history
+- Refund tracking
+- Promotional codes
+- Referral campaigns
+- Featured sponsored listings
+- Revenue analytics
+- Payment reconciliation
+
+Potential plans:
+
+Starter, Growth and Enterprise.
+
+Do not hardcode pricing throughout the application. Store plans and pricing in configurable database records.
+
+---
+
+## 5. TECHNOLOGY STACK
+
+Use a TypeScript-first stack.
+
+### Frontend
+
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- Radix UI
+- Motion for React
+- Lucide icons
+- React Hook Form
+- Zod
+
+### Backend
+
+- NestJS
+- TypeScript
+- REST APIs
+- OpenAPI/Swagger
+- Prisma ORM
+- PostgreSQL
+
+### Infrastructure
+
+- Redis
+- BullMQ
+- Docker
+- S3-compatible private object storage
+- CI/CD
+- Centralized structured logging
+- Error monitoring
+- Automated backups
+
+### Testing
+
+- Jest
+- Supertest
+- Playwright
+- OWASP ZAP
+- Semgrep
+- Dependency and secret scanning
+
+Use a modular monolith initially. Do not introduce microservices without a demonstrated technical requirement.
+
+Do not use MongoDB as the primary transactional database unless a documented architectural reason justifies changing this decision.
+
+Choose managed hosting after evaluating security, cost, operational complexity, backups, data location and provider terms.
+
+---
+
+## 6. DESIGN SYSTEM AND UI/UX REQUIREMENTS
+
+The visual identity must be sophisticated, organic, modern and trustworthy.
+
+STRICTLY AVOID:
+
+- Generic neon-purple AI aesthetics
+- Excessive gradients
+- Overuse of glassmorphism
+- Excessive glowing effects
+- Random decorative blobs
+- Oversized empty hero sections
+- Generic template dashboards
+- Excessive cards inside cards
+- Too many colors
+- Unnecessary animations
+- Inconsistent spacing
+- Fake functionality
+
+### Desired design direction
+
+Use:
+
+- Warm off-white backgrounds
+- Deep forest or botanical green as the primary accent
+- Muted teal as a secondary accent
+- Charcoal for primary text
+- Soft stone or sage neutrals
+- A restrained warm accent for important actions
+- Clear typography
+- Generous but efficient spacing
+- Subtle borders and shadows
+- Consistent iconography
+- High-quality empty states
+- Realistic sample data during development
+
+The design should feel like a polished premium healthcare product, not a hospital management template.
+
+### Design references
+
+Evaluate and selectively use components from:
+
+- [https://ui.shadcn.com/](https://ui.shadcn.com/)
+- [https://www.radix-ui.com/primitives](https://www.radix-ui.com/primitives)
+- [https://motion.dev/](https://motion.dev/)
+- [https://lucide.dev/](https://lucide.dev/)
+- [https://reactbits.dev/](https://reactbits.dev/)
+- [https://magicui.design/](https://magicui.design/)
+
+Do not install every library. Establish one consistent component system.
+
+### Required design quality
+
+- Responsive desktop, tablet and mobile layouts
+- Mobile-first patient experience
+- Accessible forms
+- Visible focus states
+- Keyboard navigation
+- Semantic HTML
+- Loading skeletons
+- Useful error messages
+- Empty states
+- Success and confirmation states
+- Responsive tables
+- Proper modal and drawer behavior
+- Smooth transitions
+- Reduced-motion support
+- Consistent spacing and typography
+
+Animation must improve comprehension or feedback. Respect reduced-motion preferences.
+
+Create the design tokens and reusable components before building individual screens.
+
+---
+
+## 7. DATABASE AND DATA OWNERSHIP
+
+Design a normalized PostgreSQL schema.
+
+Consider entities such as:
+
+- Users
+- UserSessions
+- Roles
+- Permissions
+- Patients
+- FamilyMembers
+- PatientConsents
+- Laboratories
+- LaboratoryBranches
+- LaboratoryStaff
+- LaboratoryVerifications
+- Licences
+- ServiceAreas
+- TestCategories
+- Tests
+- TestSynonyms
+- LaboratoryTests
+- TestPrices
+- AvailabilitySlots
+- Bookings
+- BookingItems
+- BookingStatusHistory
+- CollectionRequests
+- CollectionAssignments
+- CollectionStatusHistory
+- Reports
+- ReportVersions
+- ReportAccessLogs
+- Payments
+- Refunds
+- Subscriptions
+- SubscriptionPlans
+- Commissions
+- Notifications
+- Reviews
+- SupportTickets
+- AuditLogs
+- AIRequests
+- AIUsageRecords
+
+You may modify this design when justified.
+
+Requirements:
+
+- Foreign-key integrity
+- Appropriate indexes
+- Unique constraints
+- Transactions for critical workflows
+- Explicit ownership
+- Tenant isolation
+- Soft deletion only where justified
+- Defined retention and deletion rules
+- Migration version control
+- Backup and restore strategy
+
+Do not store report PDFs directly in ordinary database columns. Store them in private object storage and keep secure metadata and references in the database.
+
+---
+
+## 8. SECURITY REQUIREMENTS — NON-NEGOTIABLE
+
+Treat all patient and laboratory data as sensitive.
+
+Implement:
+
+### Identity and sessions
+
+- Strong password hashing using Argon2id or another justified modern password hashing algorithm.
+- Secure OTP lifecycle.
+- OTP expiration.
+- OTP attempt limits.
+- Login rate limiting.
+- Session rotation.
+- Session revocation.
+- MFA for administrators and laboratory administrators.
+- Secure cookies.
+- CSRF protection where applicable.
+
+### Authorization
+
+- RBAC.
+- Tenant isolation.
+- Server-side authorization on every protected operation.
+- Object-level access checks.
+- Family member consent and permissions.
+- No reliance on frontend-only permissions.
+- Tests for horizontal and vertical privilege escalation.
+
+### API security
+
+- Strict schema validation.
+- Parameterized database queries.
+- Rate limiting.
+- CORS restrictions.
+- Secure headers.
+- Request-size limits.
+- Input sanitization where appropriate.
+- Safe error responses.
+- Protection against IDOR, XSS, CSRF, SQL injection and SSRF.
+- No unsafe dynamic code execution.
+- No unrestricted file access.
+
+### File security
+
+- Allowlisted file types.
+- File signature validation.
+- File-size limits.
+- Malware scanning.
+- Private storage.
+- Short-lived signed URLs.
+- No public report buckets.
+- Access audit trails.
+- Safe download headers.
+- Controlled deletion and retention.
+
+### Data protection
+
+- TLS in transit.
+- Encryption at rest.
+- Encryption of backups.
+- Restricted secrets.
+- No credentials in Git.
+- Data minimization.
+- Consent management.
+- Access logs.
+- Data export and deletion procedures.
+- Vendor and AI data-processing review.
+
+### AI security
+
+- Prompt-injection protection.
+- Untrusted document isolation.
+- Tool permission checks.
+- Output validation.
+- Sensitive-data minimization.
+- Cost and rate limits.
+- No arbitrary SQL.
+- No autonomous sensitive action.
+- No diagnosis or prescriptions.
+
+### Operational security
+
+- Security event monitoring.
+- Dependency scanning.
+- Secret scanning.
+- Static analysis.
+- Backup restoration testing.
+- Incident response documentation.
+- Vulnerability remediation tracking.
+- Production environment separation.
+
+Create a threat model and security test suite before handling real patient data.
+
+Never use real patient records as development fixtures. Use synthetic data.
+
+---
+
+## 9. DEVELOPMENT RULES
+
+Work in phases, not one giant implementation.
+
+For every feature:
+
+1. Read the relevant requirements.
+2. Inspect the existing project.
+3. Explain the planned implementation briefly.
+4. Identify dependencies and affected modules.
+5. Implement the feature.
+6. Run formatting and lint checks.
+7. Run type checks.
+8. Run unit tests.
+9. Run integration tests where relevant.
+10. Run end-to-end tests where relevant.
+11. Inspect the UI in a real browser when available.
+12. Test error cases and permission boundaries.
+13. Fix failures.
+14. Rerun affected tests.
+15. Update documentation.
+16. Report what was completed and what remains.
+
+Do not move to another feature until the current feature's acceptance criteria pass.
+
+After every feature, update a feature status ledger.
+
+Possible statuses:
+
+- Not started
+- In progress
+- Implemented
+- Tests failed
+- Blocked
+- Verified
+
+After every phase:
+
+- Run all phase-specific tests.
+- Run regression tests for previous phases.
+- Run security checks relevant to that phase.
+- Review logs and errors.
+- Verify database migrations.
+- Verify critical user journeys.
+- Produce a phase report.
+- Wait for approval before proceeding.
+
+If a test fails:
+
+- Stop.
+- Explain the failure.
+- Identify the root cause.
+- Fix it.
+- Rerun the failed test.
+- Rerun relevant regression tests.
+- Do not mark the phase complete until all mandatory tests pass.
+
+Never delete or overwrite existing user work without explicit approval.
+
+Before changing important files, inspect them and preserve existing working functionality.
+
+Do not silently replace the architecture or remove features to make tests pass.
+
+Do not create fake buttons, fake data persistence or placeholder functionality presented as complete.
+
+Use realistic synthetic seed data for development.
+
+---
+
+## 10. TESTING STRATEGY
+
+Use a layered testing strategy.
+
+### Unit tests
+
+Test business logic, validators, permissions, calculations and utilities.
+
+### Integration tests
+
+Test database interactions, services, transactions, queues, payment webhooks and API endpoints.
+
+### End-to-end tests
+
+Test real user journeys in a browser.
+
+### Security tests
+
+Test authentication, authorization, tenant isolation, file access, rate limiting, input validation and sensitive-data exposure.
+
+### Performance tests
+
+Test search, booking creation, report retrieval, dashboard loading and concurrent booking attempts.
+
+### Accessibility tests
+
+Check keyboard navigation, focus visibility, labels, semantic structure, contrast and reduced motion.
+
+### AI evaluations
+
+Test extraction accuracy, prompt injection, unsafe advice, hallucination, privacy leakage and unauthorized tool access.
+
+Mandatory scenarios include:
+
+- A patient cannot access another patient's reports.
+- One laboratory cannot access another laboratory's bookings.
+- A staff member cannot access administrator functionality.
+- An expired or revoked session cannot access protected data.
+- Two users cannot reserve the same unavailable slot.
+- A duplicate payment webhook does not create duplicate financial records.
+- An unauthorized user cannot retrieve a report through a guessed URL.
+- A report cannot be published to the wrong patient.
+- AI cannot reveal another user's data.
+- Uploaded documents cannot override system instructions.
+- Failed jobs can retry safely without duplicating business actions.
+- A backup can actually be restored.
+
+Do not use a passing frontend build as proof of application correctness.
+
+---
+
+## 11. PHASE ROADMAP
+
+Follow this exact development order unless a documented dependency requires a change.
+
+Phase 0: Product definition, requirements and architecture.
+
+Phase 1: Project foundation and engineering setup.
+
+Phase 2: Authentication, identity and permissions.
+
+Phase 3: Laboratory onboarding and administration.
+
+Phase 4: Test catalogue and discovery.
+
+Phase 5: Booking and scheduling.
+
+Phase 6: Home collection operations.
+
+Phase 7: Reports and Family Health Passport.
+
+Phase 8: Payments, subscriptions and commissions.
+
+Phase 9: LabConnect Intelligence.
+
+Phase 10: Notifications and support.
+
+Phase 11: Reviews, engagement and premium UX.
+
+Phase 12: Analytics and administration.
+
+Phase 13: Security hardening, performance, deployment and launch.
+
+Phase 14: Technical documentation, official reports and marketing deliverables.
+
+Do not skip phases.
+
+---
+
+## 12. DEPLOYMENT AND DEVOPS
+
+Use:
+
+- Separate development, staging and production environments.
+- Dockerized services.
+- Environment-specific secrets.
+- Automated CI checks.
+- Version-controlled database migrations.
+- Health endpoints.
+- Structured logging.
+- Error monitoring.
+- Database backups.
+- Object-storage backups where supported.
+- Deployment rollback procedures.
+- Database restore drills.
+- Infrastructure documentation.
+
+Do not deploy unfinished code to production.
+
+Do not use production patient data in local development.
+
+Do not commit .env files, credentials, API keys or certificates.
+
+Document the actual hosting provider, region, data-processing terms and backup arrangements.
+
+---
+
+## 13. OFFICIAL DOCUMENTATION AND REPORTS
+
+At the end of each phase produce:
+
+1. Phase completion report
+2. Features implemented
+3. Requirement IDs satisfied
+4. Files and modules changed
+5. Database changes
+6. API changes
+7. Tests executed
+8. Exact test results
+9. Security checks performed
+10. Known limitations
+11. Outstanding bugs
+12. Performance observations
+13. Screenshots or browser evidence where available
+14. Deployment status
+15. Approval recommendation
+
+At the end of the project produce:
+
+- Final Product Requirements Document
+- Final Software Requirements Specification
+- Final Architecture Document
+- Final Database Documentation
+- API Documentation
+- User Manual
+- Laboratory Manual
+- Administrator Manual
+- Installation and Deployment Guide
+- Security Assessment Report
+- Vulnerability Remediation Report
+- Test Execution Report
+- Performance Test Report
+- Backup and Recovery Report
+- AI Safety Evaluation Report
+- Requirements Traceability Matrix
+- Final Product Completion Report
+- Business Proposal
+- Pricing and Monetization Document
+- Marketing Strategy
+- Laboratory Lead Generation Plan
+
+Never invent test results, certifications, security audits, regulatory approvals or deployment status.
+
+Clearly distinguish automated checks performed by you from independent professional audits that still need to be commissioned.
+
+---
+
+## 14. MARKETING AND LEAD GENERATION
+
+Do not begin broad marketing until the platform's operational workflows have been validated.
+
+Prepare a separate go-to-market plan covering:
+
+- Initial city selection
+- Ideal laboratory customer profile
+- Independent laboratories
+- Multi-branch laboratory businesses
+- Decision-makers
+- Laboratory acquisition strategy
+- Patient acquisition strategy
+- Partnership strategy
+- Referral campaigns
+- Local SEO
+- Social media
+- Educational content
+- Healthcare professional partnerships
+- Search engine marketing
+- Outreach scripts
+- Email and WhatsApp outreach where compliant
+- Sales pipeline
+- Lead tracking
+- Customer onboarding
+- Retention
+- Pricing experiments
+- Unit economics
+- Customer acquisition cost
+- Conversion rate
+- Monthly recurring revenue
+- Booking volume
+- Cancellation rate
+- Laboratory retention
+
+Generate a structured lead-generation spreadsheet specification with fields for:
+
+- Laboratory name
+- City
+- Branches
+- Website
+- Public contact information
+- Public business email
+- Public phone number
+- Decision-maker where publicly available
+- Verification status
+- Current digital workflow
+- Potential pain point
+- Outreach status
+- Last contact date
+- Follow-up date
+- Notes
+
+Use publicly available business information and lawful outreach methods. Do not collect patient information for marketing.
+
+---
+
+## 15. RESPONSE FORMAT AND COMMUNICATION
+
+At the end of each work session, report:
+
+### Current phase
+
+Name and objective.
+
+### Completed
+
+Only genuinely completed work.
+
+### Tests
+
+Exact commands executed and actual results.
+
+### Security
+
+Checks completed and issues discovered.
+
+### Blockers
+
+Anything preventing progress.
+
+### Remaining tasks
+
+The next incomplete requirements.
+
+### Decision needed
+
+Only ask questions that genuinely block implementation.
+
+### Next step
+
+One specific next action.
+
+Keep explanations understandable, but do not sacrifice engineering quality.
+
+Avoid unnecessary code dumps. Modify the actual project files when tool access is available.
+
+When you cannot run a command, inspect a browser, access a service or verify a result, say so clearly.
+
+---
+
+## 16. IMMEDIATE INSTRUCTION
+
+Start with Phase 0 only.
+
+Do not start coding.
+
+Read these instructions completely.
+
+Prepare the product requirements, feature catalogue, user roles, architecture, database design, security model, AI safety specification, development plan and test acceptance criteria.
+
+Identify contradictions and missing requirements.
+
+Present the finalized feature catalogue for approval.
+
+Wait for approval before Phase 1.
+
+The most important priorities are:
+
+1. Patient privacy and security.
+2. Correct booking and laboratory workflows.
+3. Reliable backend architecture.
+4. Excellent, non-generic UI/UX.
+5. Useful and safe AI features.
+6. Maintainability and testability.
+7. Real commercial value for laboratories and patients.
+
+Build LabConnect as a real product, not a generated-looking demo.

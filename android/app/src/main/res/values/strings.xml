@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">LabConnect</string>
+    <string name="title_activity_main">LabConnect</string>
+    <string name="package_name">pk.labconnect.app</string>
+    <string name="custom_url_scheme">pk.labconnect.app</string>
+</resources>

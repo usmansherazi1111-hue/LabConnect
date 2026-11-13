@@ -1,0 +1,6 @@
+{
+  "name": "LabConnect — Lahore Diagnostic Marketplace & SaaS",
+  "description": "Diagnostic laboratory marketplace and operations management SaaS for Lahore, Pakistan. Multi-laboratory test discovery, home collection booking, secure report delivery, and LabConnect Intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
