@@ -566,7 +566,7 @@ function buildInitialDatabase(): LabConnectDatabase {
       name: 'Inspector Ayesha Siddiqua (PHC)',
       phone: '+923009988776',
       email: 'inspector@phc.punjab.gov.pk',
-      passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD || crypto.randomBytes(16).toString('base64url')),
+      passwordHash: hashPassword(process.env.SEED_INSPECTOR_PASSWORD || crypto.randomBytes(16).toString('base64url')),
       role: 'PHC_INSPECTOR',
       area: 'Lahore Division, Punjab',
       familyMembers: [],
@@ -3272,6 +3272,19 @@ async function startServer() {
           rateLimiter: 'Sliding Window (45 req / 5 min on /api/auth/*)',
           pdfIntegrity: 'SHA-256 Digest + Strict Owner RBAC',
         },
+        lahoreCoverage: {
+          verifiedLabsCount: db.laboratories.filter((l) => l.verificationStatus === 'VERIFIED').length,
+          totalLabsCount: db.laboratories.length,
+          totalBranchesCount: db.laboratories.reduce((s, l) => s + l.branches.length, 0),
+          coveredAreas: Array.from(new Set(db.laboratories.flatMap((l) => l.branches.map((b) => b.area)))),
+          verifiedTestsCount: db.tests.length,
+          verifiedTariffsCount: db.pricings.length,
+          envHygiene: {
+            hasAuthSecretEnv: Boolean((process.env.LABCONNECT_AUTH_SECRET || '').trim()),
+            hasGeminiKey: Boolean((process.env.GEMINI_API_KEY || '').trim()),
+            hasSmtpConfigured: Boolean((process.env.SMTP_HOST || '').trim()),
+          },
+        },
         metrics: {
           totalBookings: db.bookings.length,
           totalReports: db.reports.length,
@@ -3397,6 +3410,32 @@ async function startServer() {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="labconnect_audit_logs.csv"');
     return res.send(csv);
+  });
+
+  // Phase 13: Sanitized Backup Snapshot Export (Zero passwordHashes or secret tokens)
+  app.get('/api/admin/backup/snapshot', requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const snapshot = {
+      exportedAt: new Date().toISOString(),
+      exportedBy: req.authUser!.name,
+      schemaVersion: '1.0.0',
+      laboratories: db.laboratories,
+      tests: db.tests,
+      pricings: db.pricings,
+      bookings: db.bookings,
+      reports: db.reports,
+      reviews: db.reviews,
+      settlementsLedger: db.settlementsLedger,
+      auditLogs: db.auditLogs,
+      users: db.users.map((u) => sanitizeUser(u)),
+    };
+    const payload = JSON.stringify(snapshot, null, 2);
+    const sha256 = crypto.createHash('sha256').update(payload).digest('hex');
+    appendAudit(req.authUser!.name, req.authUser!.role, 'COMPLIANCE_SNAPSHOT_EXPORTED', `SHA256:${sha256.slice(0, 16)}...`);
+    saveDatabase();
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="labconnect_sanitized_backup.json"');
+    res.setHeader('X-Snapshot-Sha256', sha256);
+    return res.send(payload);
   });
 
   // ==========================================

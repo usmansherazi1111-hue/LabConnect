@@ -51,6 +51,15 @@ export const AdminPortalPreview: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>([]);
   const [securityStatus, setSecurityStatus] = useState<Record<string, string>>({});
+  const [lahoreCoverage, setLahoreCoverage] = useState<{
+    verifiedLabsCount: number;
+    totalLabsCount: number;
+    totalBranchesCount: number;
+    coveredAreas: string[];
+    verifiedTestsCount: number;
+    verifiedTariffsCount: number;
+    envHygiene?: { hasAuthSecretEnv: boolean; hasGeminiKey: boolean; hasSmtpConfigured: boolean };
+  } | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<{
     totalBookings: number;
@@ -81,6 +90,7 @@ export const AdminPortalPreview: React.FC = () => {
         setAuditLogs(res.data.auditLogs || []);
         setEmailLogs(res.data.emailLogs || []);
         if (res.data.securityStatus) setSecurityStatus(res.data.securityStatus);
+        if (res.data.lahoreCoverage) setLahoreCoverage(res.data.lahoreCoverage);
         if (res.data.metrics) setMetrics(res.data.metrics);
       }
     } catch (err) {
@@ -536,19 +546,62 @@ export const AdminPortalPreview: React.FC = () => {
             </div>
           )}
 
+          {lahoreCoverage && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 text-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span className="font-bold text-slate-900 uppercase tracking-wider">
+                  Lahore Coverage &amp; Launch Readiness Telemetry
+                </span>
+                <span className="font-mono text-[11px] text-[#0F5132] font-semibold">
+                  {lahoreCoverage.verifiedLabsCount}/{lahoreCoverage.totalLabsCount} Labs Verified · {lahoreCoverage.totalBranchesCount} Branches
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-500 block">Covered Lahore Zones ({lahoreCoverage.coveredAreas.length})</span>
+                  <span className="font-medium text-slate-800">{lahoreCoverage.coveredAreas.join(', ')}</span>
+                </div>
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-500 block">Verified Diagnostic Catalogue</span>
+                  <span className="font-mono font-semibold text-slate-900">
+                    {lahoreCoverage.verifiedTestsCount} Panels · {lahoreCoverage.verifiedTariffsCount} Branch Tariffs
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-500 block">Runtime Env Secret Posture</span>
+                  <span className="font-mono text-[11px] text-slate-700">
+                    Signing: {lahoreCoverage.envHygiene?.hasAuthSecretEnv ? 'ENV' : 'Runtime Key'} · Gemini: {lahoreCoverage.envHygiene?.hasGeminiKey ? 'Configured' : 'Fallback'} · SMTP: {lahoreCoverage.envHygiene?.hasSmtpConfigured ? 'Active' : 'MIME Queue'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                 Append-Only Security &amp; Clinical Audit Trail ({auditLogs.length})
               </span>
-              <a
-                href={apiClient.getAuditCsvUrl()}
-                download="labconnect_audit_logs.csv"
-                className="px-3 py-1.5 bg-white border border-slate-200 hover:border-[#0F5132] text-slate-800 rounded-lg text-xs font-semibold flex items-center gap-1.5"
-              >
-                <Download className="w-3.5 h-3.5 text-[#0F5132]" />
-                <span>Download CSV</span>
-              </a>
+              <div className="flex flex-wrap items-center gap-2">
+                {adminUser.role === 'SUPER_ADMIN' && (
+                  <a
+                    href={apiClient.getBackupSnapshotUrl()}
+                    download="labconnect_sanitized_backup.json"
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-[#0F5132] text-slate-800 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5 text-[#0F5132]" />
+                    <span>Sanitized Backup (.JSON)</span>
+                  </a>
+                )}
+                <a
+                  href={apiClient.getAuditCsvUrl()}
+                  download="labconnect_audit_logs.csv"
+                  className="px-3 py-1.5 bg-white border border-slate-200 hover:border-[#0F5132] text-slate-800 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#0F5132]" />
+                  <span>Download CSV</span>
+                </a>
+              </div>
             </div>
             <div className="divide-y divide-slate-100 text-xs">
               {auditLogs.map((log) => (

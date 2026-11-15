@@ -490,6 +490,11 @@ export const apiClient = {
     return apiUrl(`/api/admin/audit/export${token ? `?token=${encodeURIComponent(token)}` : ''}`);
   },
 
+  getBackupSnapshotUrl(): string {
+    const token = getStoredToken('admin');
+    return apiUrl(`/api/admin/backup/snapshot${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+  },
+
   async getCurrentUser(scope: AuthScope) {
     const res = await fetch(apiUrl('/api/auth/me'), {
       headers: authHeaders({}, scope),

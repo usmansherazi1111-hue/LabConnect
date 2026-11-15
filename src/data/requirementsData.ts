@@ -306,8 +306,8 @@ Primary entities include:
 - **Phase 10: Notifications & Verified Patient Reviews**: SMS/WhatsApp booking reminders, audited patient reviews.
 - **Phase 11: Reviews, Engagement & Premium UX**: WCAG AA audit, motion settling $\le 200\text{ms}$, profile completion cards.
 - **Phase 12: Analytics & Administration Console**: Super-admin oversight, operational bottleneck metrics, audit trails.
-- **Phase 13: Security Hardening & Launch Readiness**: OWASP ZAP penetration audit, backup restoration drill, final Lahore data coverage report.
-- **Phase 14: Documentation & Marketing Deliverables**: Official technical manuals, laboratory outreach scripts, commercial handover.`,
+- **Phase 13: Security Hardening & Launch Readiness (COMPLETED)**: Zero client secrets, sanitized JSON backup snapshot, Lahore coverage telemetry, rate-limited endpoints, and E2E verification.
+- **Phase 14: Documentation & Handover (COMPLETED)**: Interactive PRD/SRS/BRD/ERD hub, technical specifications export, and Android Capacitor APK build pipeline.`,
   },
   {
     id: 'DOC-14-TEST',
