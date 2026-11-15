@@ -13,6 +13,7 @@ import {
   DiagnosticReportRecord,
   LabReviewRecord,
   LabRatingSummary,
+  NotificationRecord,
 } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
@@ -42,6 +43,8 @@ import {
   Plus,
   ShoppingBag,
   XCircle,
+  Bell,
+  TrendingUp,
 } from 'lucide-react';
 
 interface PatientPortalPreviewProps {
@@ -130,11 +133,17 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
 
   // PDF Reports Viewing State (Email control belongs strictly to Lab Branch Leads & Pathologists)
   const [selectedReport, setSelectedReport] = useState<DiagnosticReportRecord | null>(null);
+  const [reportFamilyFilter, setReportFamilyFilter] = useState<string>('ALL');
+
+  // Notifications State
+  const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
+  const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
+  const [showNotifications, setShowNotifications] = useState<boolean>(false);
 
   // AI Explainer State
   const [aiLanguage, setAiLanguage] = useState<'EN' | 'UR'>('EN');
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
-  const [aiModel, setAiModel] = useState<string>('gemini-3.8-flash');
+  const [aiModel, setAiModel] = useState<string>('gemini-4-hydrogen');
   const [isLoadingAi, setIsLoadingAi] = useState<boolean>(false);
 
   // Profile Edit State
@@ -171,13 +180,16 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
     if (!patientUser) {
       setMyBookings([]);
       setMyReports([]);
+      setNotifications([]);
+      setUnreadNotifications(0);
       return;
     }
     setIsLoadingRecords(true);
     try {
-      const [bkRes, repRes] = await Promise.all([
+      const [bkRes, repRes, notifRes] = await Promise.all([
         apiClient.getBookings({}, 'patient'),
         apiClient.getReports('patient'),
+        apiClient.getNotifications('patient'),
       ]);
       if (bkRes.success && Array.isArray(bkRes.data)) {
         setMyBookings(bkRes.data);
@@ -187,6 +199,10 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
         if (repRes.data.length > 0 && !selectedReport) {
           setSelectedReport(repRes.data[0]);
         }
+      }
+      if (notifRes.success && Array.isArray(notifRes.data)) {
+        setNotifications(notifRes.data);
+        setUnreadNotifications(notifRes.unreadCount || 0);
       }
     } catch (err) {
       console.error('Failed to load patient records:', err);
@@ -342,6 +358,7 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
 
       const res = await apiClient.createBooking({
         patientName: patientName.trim(),
+        familyMemberId: activeFamilyMember?.id,
         patientPhone: cleanPhone,
         patientEmail: patientEmail.trim(),
         patientArea: currentBranch?.area || 'Lahore',
@@ -452,6 +469,34 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
     }
   };
 
+  const handleExplainFullReport = async (report: DiagnosticReportRecord, langOverride?: 'EN' | 'UR') => {
+    setIsLoadingAi(true);
+    setAiExplanation(null);
+    try {
+      const res = await apiClient.explainReport({
+        testName: `${report.bookingNumber} Full Panel`,
+        testValue: `${report.parameters.length} parameters`,
+        referenceRange: 'Laboratory Printed Ranges',
+        language: langOverride || aiLanguage,
+        parameters: report.parameters,
+      });
+      if (res.success) {
+        setAiExplanation(res.explanation);
+        if (res.model) setAiModel(res.model);
+      }
+    } catch {
+      setAiExplanation('Unable to analyze full report panel right now.');
+    } finally {
+      setIsLoadingAi(false);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    await apiClient.markNotificationsRead('patient');
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadNotifications(0);
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setProfileSavedMsg(null);
@@ -498,12 +543,22 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             {patientUser
-              ? `Signed in as ${patientUser.name} (${patientUser.phone}) · Lab Report Email: ${patientUser.email}`
+              ? `Signed in as ${patientUser.name} · ${patientUser.phone} · Email: ${patientUser.email}`
               : 'Compare PHC-verified rates freely. Sign in via mobile OTP to book and view/download signed PDF reports.'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {patientUser && (
+            <button
+              type="button"
+              onClick={() => setShowNotifications((prev) => !prev)}
+              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 min-h-[40px] whitespace-nowrap"
+            >
+              <Bell className="w-3.5 h-3.5 text-[#0F5132]" />
+              <span>Alerts ({unreadNotifications})</span>
+            </button>
+          )}
           {!patientUser && (
             <button
               onClick={onOpenAuth}
@@ -528,6 +583,54 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Expandable Live Patient Notifications Panel */}
+      {patientUser && showNotifications && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 text-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <span className="font-bold text-slate-900">
+              Clinical &amp; Dispatch Notifications ({notifications.length})
+            </span>
+            <div className="flex items-center gap-3">
+              {unreadNotifications > 0 && (
+                <button
+                  type="button"
+                  onClick={handleMarkAllNotificationsRead}
+                  className="text-[#0F5132] font-semibold hover:underline"
+                >
+                  Mark All Read
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowNotifications(false)}
+                className="text-slate-500 hover:text-slate-800"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          {notifications.length === 0 ? (
+            <div className="text-slate-500 py-2">No dispatch or report alerts yet.</div>
+          ) : (
+            <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
+              {notifications.slice(0, 8).map((n) => (
+                <div key={n.id} className={`py-2.5 flex items-start justify-between gap-3 ${n.read ? 'opacity-70' : ''}`}>
+                  <div>
+                    <div className="font-semibold text-slate-900">
+                      {n.title} <span className="font-normal text-slate-500">· {n.category}</span>
+                    </div>
+                    <div className="text-slate-600 mt-0.5">{n.message}</div>
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
+                    {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ========================================= */}
       {/* TAB 1: DISCOVER & COMPARE TESTS           */}
@@ -875,7 +978,9 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                             </span>
                           </div>
                           <div className="font-bold text-slate-900">{labObj?.name || bk.labId}</div>
-                          <div className="text-[11px] text-slate-600">{bk.branchName}</div>
+                          <div className="text-[11px] text-slate-600">
+                            {bk.branchName} · For: {bk.familyMemberName || bk.patientName}
+                          </div>
                           <div className="text-[11px] text-slate-500">
                             {bk.scheduledDate} · {bk.scheduledTimeSlot} · {bk.testIds.length} test(s)
                           </div>
@@ -1224,17 +1329,33 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Reports List */}
+              {/* Reports List + Family Filter */}
               <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                    Verified Reports ({myReports.length})
+                    Health Passport ({myReports.length})
                   </span>
                   <button onClick={loadPatientRecords} className="text-xs text-[#0F5132] font-semibold">
                     Refresh
                   </button>
                 </div>
-                {myReports.map((rep) => (
+
+                <select
+                  value={reportFamilyFilter}
+                  onChange={(e) => setReportFamilyFilter(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800"
+                >
+                  <option value="ALL">All Household Members</option>
+                  {Array.from(new Set(myReports.map((r) => r.patientName))).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+
+                {myReports
+                  .filter((r) => reportFamilyFilter === 'ALL' || r.patientName === reportFamilyFilter)
+                  .map((rep) => (
                   <div
                     key={rep.id}
                     onClick={() => {
@@ -1247,15 +1368,13 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                         : 'bg-white border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
                       <span className="font-mono font-bold text-slate-900">{rep.bookingNumber}</span>
-                      <span className="text-[10px] font-mono bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded">
-                        PDF READY
-                      </span>
+                      <span className="font-mono text-[#0F5132] font-semibold">PDF Signed</span>
                     </div>
                     <div className="font-semibold text-slate-800">{rep.branchName}</div>
                     <div className="text-[11px] text-slate-500">
-                      Published: {new Date(rep.publishedAt).toLocaleDateString()}
+                      {rep.familyMemberName || rep.patientName} · {new Date(rep.publishedAt).toLocaleDateString()}
                     </div>
                   </div>
                 ))}
@@ -1369,45 +1488,96 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                     </table>
                   </div>
 
-                  {/* Pathologist Clinical Notes + Bilingual AI Explainer */}
+                  {/* Pathologist Clinical Notes + Bilingual Full-Panel AI Explainer */}
                   <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-4 space-y-3 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-bold text-[#0F5132] flex items-center gap-1.5">
                         <Sparkles className="w-4 h-4" />
-                        <span>Patient Report Explainer ({aiLanguage === 'UR' ? 'Urdu' : 'English'})</span>
+                        <span>LabConnect Intelligence ({aiLanguage === 'UR' ? 'Urdu' : 'English'})</span>
                       </span>
-                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
-                          onClick={() => setAiLanguage('EN')}
-                          className={`px-2.5 py-1 rounded text-[11px] font-semibold ${
-                            aiLanguage === 'EN' ? 'bg-[#0F5132] text-white' : 'text-slate-600'
-                          }`}
+                          type="button"
+                          onClick={() => handleExplainFullReport(selectedReport)}
+                          className="px-3 py-1.5 bg-[#0F5132] hover:bg-emerald-800 text-white rounded-lg text-[11px] font-semibold"
                         >
-                          English
+                          Summarize Full Panel
                         </button>
-                        <button
-                          onClick={() => setAiLanguage('UR')}
-                          className={`px-2.5 py-1 rounded text-[11px] font-semibold ${
-                            aiLanguage === 'UR' ? 'bg-[#0F5132] text-white' : 'text-slate-600'
-                          }`}
-                        >
-                          اردو (Urdu)
-                        </button>
+                        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5">
+                          <button
+                            onClick={() => setAiLanguage('EN')}
+                            className={`px-2.5 py-1 rounded text-[11px] font-semibold ${
+                              aiLanguage === 'EN' ? 'bg-[#0F5132] text-white' : 'text-slate-600'
+                            }`}
+                          >
+                            English
+                          </button>
+                          <button
+                            onClick={() => setAiLanguage('UR')}
+                            className={`px-2.5 py-1 rounded text-[11px] font-semibold ${
+                              aiLanguage === 'UR' ? 'bg-[#0F5132] text-white' : 'text-slate-600'
+                            }`}
+                          >
+                            اردو (Urdu)
+                          </button>
+                        </div>
                       </div>
                     </div>
 
                     {isLoadingAi ? (
                       <div className="text-slate-500">Generating patient-friendly explanation ({aiModel})...</div>
                     ) : aiExplanation ? (
-                      <div className="bg-white border border-emerald-200 rounded-lg p-3 text-slate-800 leading-relaxed" dir={aiLanguage === 'UR' ? 'rtl' : 'ltr'}>
-                        {aiExplanation}
+                      <div className="bg-white border border-emerald-200 rounded-lg p-3 text-slate-800 leading-relaxed space-y-1.5" dir={aiLanguage === 'UR' ? 'rtl' : 'ltr'}>
+                        <p>{aiExplanation}</p>
+                        <div className="text-[10px] text-slate-500 border-t border-slate-100 pt-1" dir="ltr">
+                          Educational awareness summary ({aiModel}). Always consult your physician for clinical diagnosis.
+                        </div>
                       </div>
                     ) : (
                       <p className="text-slate-600">
-                        <strong>Pathologist Note:</strong> {selectedReport.clinicalNotes} Tap <strong>Explain</strong> on any row above for plain English or Urdu guidance.
+                        <strong>Pathologist Note:</strong> {selectedReport.clinicalNotes} Tap <strong>Explain</strong> on any row or <strong>Summarize Full Panel</strong> above for plain English or Urdu guidance.
                       </p>
                     )}
                   </div>
+
+                  {/* Historical Biomarker Comparison (Passport Longitudinal Check) */}
+                  {myReports.length > 1 && (
+                    <div className="border-t border-slate-200 pt-4 space-y-2 text-xs">
+                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <TrendingUp className="w-4 h-4 text-[#0F5132]" />
+                        <span>Household Report History ({myReports.length} Published Records)</span>
+                      </div>
+                      <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                            <tr>
+                              <th className="py-2 px-3">Date</th>
+                              <th className="py-2 px-3">Booking</th>
+                              <th className="py-2 px-3">Patient</th>
+                              <th className="py-2 px-3">Laboratory</th>
+                              <th className="py-2 px-3">Markers Out of Range</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-mono">
+                            {myReports.slice(0, 5).map((r) => {
+                              const flagged = r.parameters.filter((p) => p.flag !== 'NORMAL').length;
+                              return (
+                                <tr key={r.id}>
+                                  <td className="py-2 px-3 tabular-nums">{new Date(r.publishedAt).toLocaleDateString()}</td>
+                                  <td className="py-2 px-3">{r.bookingNumber}</td>
+                                  <td className="py-2 px-3 font-sans">{r.familyMemberName || r.patientName}</td>
+                                  <td className="py-2 px-3 font-sans">{r.branchName}</td>
+                                  <td className={`py-2 px-3 font-bold ${flagged > 0 ? 'text-amber-700' : 'text-[#0F5132]'}`}>
+                                    {flagged === 0 ? 'All Normal' : `${flagged} Flagged`}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

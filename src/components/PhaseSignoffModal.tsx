@@ -28,7 +28,7 @@ export const PhaseSignoffModal: React.FC<PhaseSignoffModalProps> = ({
     { title: 'Normalized Database ERD & DDL (7 core tables)', status: 'COMPLETED & VERIFIED' },
     { title: 'Requirements Traceability Matrix (50+ IDs)', status: 'COMPLETED & VERIFIED' },
     { title: 'STRIDE Threat Model & Healthcare Privacy Matrix', status: 'COMPLETED & VERIFIED' },
-    { title: 'AI Feature & Safety Specification (Gemini 3.8 Flash)', status: 'COMPLETED & VERIFIED' },
+    { title: 'AI Feature & Safety Specification (Gemini 4 Hydrogen)', status: 'COMPLETED & VERIFIED' },
     { title: 'Lahore Real Laboratory Directory (Chughtai, SKMCH, IDC, Excel)', status: 'ANCHORED & CONFIRMED' },
     { title: 'Contradictions & Policy Resolutions (PHC, Prescriptions, Raast)', status: 'RESOLVED & DOCUMENTED' },
   ];

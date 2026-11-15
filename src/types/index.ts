@@ -73,6 +73,8 @@ export interface LahoreLabBranch {
   isHeadquarters?: boolean;
 }
 
+export type LabSubscriptionTier = 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+
 export interface LahoreLaboratory {
   id: string;
   name: string;
@@ -88,6 +90,8 @@ export interface LahoreLaboratory {
   contactEmail: string;
   contactPhone: string;
   sampleCollectionTurnaround: string;
+  subscriptionTier?: LabSubscriptionTier;
+  monthlySaasFeePkr?: number;
   dataConfidence: 'CONFIRMED_OFFICIAL_CATALOGUE' | 'PARTNER_INTEGRATION' | 'BRANCH_VERIFIED';
   dataSource: string;
   notes: string;
@@ -161,6 +165,8 @@ export interface DiagnosticReportRecord {
   labId: string;
   branchName: string;
   patientName: string;
+  familyMemberId?: string;
+  familyMemberName?: string;
   patientPhone: string;
   patientEmail?: string;
   fileName: string;
@@ -199,6 +205,8 @@ export interface MockBooking {
   bookingNumber: string;
   patientUserId?: string;
   patientName: string;
+  familyMemberId?: string;
+  familyMemberName?: string;
   patientPhone: string;
   patientEmail?: string;
   patientArea: string;
@@ -230,6 +238,7 @@ export interface MockBooking {
   reportUrl?: string;
   reportChecksum?: string;
   emailDispatchedAt?: string;
+  settlementId?: string;
   trackingEvents?: TrackingEvent[];
   createdAt: string;
 }
@@ -263,3 +272,31 @@ export interface LabPhlebotomistSummary {
   area?: string;
 }
 
+export interface NotificationRecord {
+  id: string;
+  recipientRole: UserRole | 'ALL';
+  targetUserId?: string;
+  targetPhone?: string;
+  targetLabId?: string;
+  title: string;
+  message: string;
+  category: 'BOOKING' | 'DISPATCH' | 'REPORT' | 'COMPLIANCE' | 'BILLING';
+  relatedId?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface SettlementPayoutRecord {
+  id: string;
+  labId: string;
+  labName: string;
+  periodLabel: string;
+  bookingCount: number;
+  grossPkr: number;
+  commissionPkr: number;
+  saasFeePkr: number;
+  netPayablePkr: number;
+  referenceCode: string;
+  settledAt: string;
+  settledBy: string;
+}

@@ -16,9 +16,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const { sendOtp, verifyOtp } = useAuth();
 
   const [step, setStep] = useState<'PHONE' | 'OTP'>('PHONE');
-  const [phone, setPhone] = useState<string>('0300 4567891');
-  const [userName, setUserName] = useState<string>('Muhammad Bilal Arshad');
-  const [userEmail, setUserEmail] = useState<string>('bilal.arshad@gmail.com');
+  const [phone, setPhone] = useState<string>('');
+  const [userName, setUserName] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
   const [otpCode, setOtpCode] = useState<string>('');
   const [countdown, setCountdown] = useState<number>(300);
   const [isSending, setIsSending] = useState<boolean>(false);

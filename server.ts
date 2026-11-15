@@ -18,7 +18,28 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, 'data');
 const DB_FILE = path.resolve(DATA_DIR, 'labconnect-db.json');
-const AUTH_SECRET = process.env.LABCONNECT_AUTH_SECRET || 'labconnect-lahore-phc-hmac-2026-dev-key';
+const AUTH_SECRET_FILE = path.resolve(DATA_DIR, '.auth-secret');
+
+function resolveAuthSecret(): string {
+  const fromEnv = (process.env.LABCONNECT_AUTH_SECRET || '').trim();
+  if (fromEnv.length >= 16) return fromEnv;
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(AUTH_SECRET_FILE)) {
+      const stored = fs.readFileSync(AUTH_SECRET_FILE, 'utf8').trim();
+      if (stored.length >= 32) return stored;
+    }
+    const generated = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(AUTH_SECRET_FILE, generated, { encoding: 'utf8', mode: 0o600 });
+    return generated;
+  } catch {
+    return crypto.randomBytes(32).toString('hex');
+  }
+}
+
+const AUTH_SECRET = resolveAuthSecret();
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || '',
@@ -74,6 +95,8 @@ export interface LabBranch {
   isHeadquarters?: boolean;
 }
 
+export type LabSubscriptionTier = 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+
 export interface LabEntity {
   id: string;
   name: string;
@@ -88,6 +111,8 @@ export interface LabEntity {
   contactEmail: string;
   contactPhone: string;
   sampleCollectionTurnaround: string;
+  subscriptionTier?: LabSubscriptionTier;
+  monthlySaasFeePkr?: number;
   dataConfidence: 'CONFIRMED_OFFICIAL_CATALOGUE' | 'PARTNER_INTEGRATION' | 'BRANCH_VERIFIED';
   dataSource: string;
   notes: string;
@@ -153,6 +178,8 @@ export interface BookingRecord {
   bookingNumber: string;
   patientUserId?: string;
   patientName: string;
+  familyMemberId?: string;
+  familyMemberName?: string;
   patientPhone: string;
   patientEmail?: string;
   patientArea: string;
@@ -184,6 +211,7 @@ export interface BookingRecord {
   reportUrl?: string;
   reportChecksum?: string;
   emailDispatchedAt?: string;
+  settlementId?: string;
   trackingEvents: TrackingEventRecord[];
   createdAt: string;
 }
@@ -202,6 +230,8 @@ export interface DiagnosticReportRecord {
   labId: string;
   branchName: string;
   patientName: string;
+  familyMemberId?: string;
+  familyMemberName?: string;
   patientPhone: string;
   patientEmail?: string;
   fileName: string;
@@ -249,6 +279,35 @@ export interface LabReviewRecord {
   createdAt: string;
 }
 
+export interface NotificationRecord {
+  id: string;
+  recipientRole: UserRole | 'ALL';
+  targetUserId?: string;
+  targetPhone?: string;
+  targetLabId?: string;
+  title: string;
+  message: string;
+  category: 'BOOKING' | 'DISPATCH' | 'REPORT' | 'COMPLIANCE' | 'BILLING';
+  relatedId?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface SettlementPayoutRecord {
+  id: string;
+  labId: string;
+  labName: string;
+  periodLabel: string;
+  bookingCount: number;
+  grossPkr: number;
+  commissionPkr: number;
+  saasFeePkr: number;
+  netPayablePkr: number;
+  referenceCode: string;
+  settledAt: string;
+  settledBy: string;
+}
+
 interface LabConnectDatabase {
   users: UserAccount[];
   laboratories: LabEntity[];
@@ -259,6 +318,9 @@ interface LabConnectDatabase {
   emailLogs: EmailDispatchLogRecord[];
   auditLogs: AuditLogRecord[];
   reviews: LabReviewRecord[];
+  notifications: NotificationRecord[];
+  settlementsLedger: SettlementPayoutRecord[];
+  adminBootstrapped?: boolean;
 }
 
 interface OtpState {
@@ -399,7 +461,7 @@ function buildInitialDatabase(): LabConnectDatabase {
       name: 'Dr. Kamran Chughtai (Lab Lead)',
       phone: '+923214455667',
       email: 'kamran.lead@chughtailab.pk',
-      passwordHash: hashPassword('LabOps@2026'),
+      passwordHash: hashPassword(process.env.SEED_LAB_PASSWORD || crypto.randomBytes(16).toString('base64url')),
       role: 'LAB_ADMIN',
       labId: 'lab-chughtai',
       branchId: 'c-branch-jailrd',
@@ -412,7 +474,7 @@ function buildInitialDatabase(): LabConnectDatabase {
       name: 'Dr. Nadia Qureshi (SKMCH Lead)',
       phone: '+923004411223',
       email: 'ops@skm.org.pk',
-      passwordHash: hashPassword('Skmch@2026'),
+      passwordHash: hashPassword(process.env.SEED_LAB_PASSWORD || crypto.randomBytes(16).toString('base64url')),
       role: 'LAB_ADMIN',
       labId: 'lab-skmch',
       branchId: 'sk-branch-johar',
@@ -425,7 +487,7 @@ function buildInitialDatabase(): LabConnectDatabase {
       name: 'Dr. Salman Farooq (IDC Lead)',
       phone: '+923334422110',
       email: 'ops@idc.net.pk',
-      passwordHash: hashPassword('IdcOps@2026'),
+      passwordHash: hashPassword(process.env.SEED_LAB_PASSWORD || crypto.randomBytes(16).toString('base64url')),
       role: 'LAB_ADMIN',
       labId: 'lab-idc',
       branchId: 'idc-branch-shadman',
@@ -438,7 +500,7 @@ function buildInitialDatabase(): LabConnectDatabase {
       name: 'Dr. Hina Tariq (Excel Lead)',
       phone: '+923454488991',
       email: 'ops@excel-labs.com',
-      passwordHash: hashPassword('ExcelOps@2026'),
+      passwordHash: hashPassword(process.env.SEED_LAB_PASSWORD || crypto.randomBytes(16).toString('base64url')),
       role: 'LAB_ADMIN',
       labId: 'lab-excel',
       branchId: 'excel-branch-gulberg',
@@ -493,7 +555,7 @@ function buildInitialDatabase(): LabConnectDatabase {
       name: 'Dr. Tariq Mahmood (PHC Director)',
       phone: '+923001122334',
       email: 'admin@labconnect.pk',
-      passwordHash: hashPassword('PhcAdmin@2026'),
+      passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD || crypto.randomBytes(16).toString('base64url')),
       role: 'SUPER_ADMIN',
       area: 'Lahore Division, Punjab',
       familyMembers: [],
@@ -504,7 +566,7 @@ function buildInitialDatabase(): LabConnectDatabase {
       name: 'Inspector Ayesha Siddiqua (PHC)',
       phone: '+923009988776',
       email: 'inspector@phc.punjab.gov.pk',
-      passwordHash: hashPassword('PhcInspect@2026'),
+      passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD || crypto.randomBytes(16).toString('base64url')),
       role: 'PHC_INSPECTOR',
       area: 'Lahore Division, Punjab',
       familyMembers: [],
@@ -527,6 +589,8 @@ function buildInitialDatabase(): LabConnectDatabase {
       contactEmail: 'info@chughtailab.com',
       contactPhone: '+92 42 111 255 790',
       sampleCollectionTurnaround: '4–8 hrs routine · 24 hrs cultures',
+      subscriptionTier: 'ENTERPRISE',
+      monthlySaasFeePkr: 45000,
       dataConfidence: 'CONFIRMED_OFFICIAL_CATALOGUE',
       dataSource: 'Chughtai Lab Public Diagnostic Tariff & Lahore Branch Directory',
       notes: 'Extensive 24/7 Jail Road reference lab and Lahore home sampling fleet.',
@@ -578,6 +642,8 @@ function buildInitialDatabase(): LabConnectDatabase {
       contactEmail: 'pathology@skm.org.pk',
       contactPhone: '+92 42 35905000',
       sampleCollectionTurnaround: '6–12 hrs routine · Free Home Sampling (PKR 0)',
+      subscriptionTier: 'ENTERPRISE',
+      monthlySaasFeePkr: 45000,
       dataConfidence: 'CONFIRMED_OFFICIAL_CATALOGUE',
       dataSource: 'Shaukat Khanum Official Lab Tariff & Screening Directory (shaukatkhanum.org.pk)',
       notes: 'SKMCH offers free home sample collection (PKR 0 fee) across Lahore.',
@@ -629,6 +695,8 @@ function buildInitialDatabase(): LabConnectDatabase {
       contactEmail: 'lahore@idc.net.pk',
       contactPhone: '+92 42 111 000 432',
       sampleCollectionTurnaround: '5–9 hrs automated chemistry',
+      subscriptionTier: 'GROWTH',
+      monthlySaasFeePkr: 18500,
       dataConfidence: 'CONFIRMED_OFFICIAL_CATALOGUE',
       dataSource: 'IDC Pakistan Published Test Tariff & Online Schedule',
       notes: 'Automated Roche Cobas analyzers at Shadman Regional Centre.',
@@ -670,6 +738,8 @@ function buildInitialDatabase(): LabConnectDatabase {
       contactEmail: 'lahore@excel-labs.com',
       contactPhone: '+92 42 35754530',
       sampleCollectionTurnaround: '6–10 hrs routine panels',
+      subscriptionTier: 'GROWTH',
+      monthlySaasFeePkr: 18500,
       dataConfidence: 'CONFIRMED_OFFICIAL_CATALOGUE',
       dataSource: 'Excel Labs Official Schedule of Charges & Digital Booking Rates',
       notes: 'Competitive published rates for Vitamin D, RFTs, and Metabolic panels.',
@@ -1175,6 +1245,34 @@ function buildInitialDatabase(): LabConnectDatabase {
     },
   ];
 
+  const notifications: NotificationRecord[] = [
+    {
+      id: 'notif-100',
+      recipientRole: 'PATIENT',
+      targetUserId: 'usr-pat-01',
+      targetPhone: '+923004567891',
+      title: 'Signed PDF Report Ready',
+      message: 'Chughtai Lab (10 Jail Road) published LC-LHR-2611-0080 and dispatched PDF copy to bilal.arshad@gmail.com.',
+      category: 'REPORT',
+      relatedId: 'LC-LHR-2611-0080',
+      read: false,
+      createdAt: nowIso,
+    },
+    {
+      id: 'notif-101',
+      recipientRole: 'LAB_ADMIN',
+      targetLabId: 'lab-chughtai',
+      title: 'Home Collection Queue Active',
+      message: 'Booking LC-LHR-2611-0081 is awaiting morning courier confirmation for Gulberg III.',
+      category: 'BOOKING',
+      relatedId: 'LC-LHR-2611-0081',
+      read: false,
+      createdAt: nowIso,
+    },
+  ];
+
+  const settlementsLedger: SettlementPayoutRecord[] = [];
+
   return {
     users,
     laboratories,
@@ -1185,6 +1283,9 @@ function buildInitialDatabase(): LabConnectDatabase {
     emailLogs,
     auditLogs,
     reviews,
+    notifications,
+    settlementsLedger,
+    adminBootstrapped: Boolean(process.env.SEED_ADMIN_PASSWORD),
   };
 }
 
@@ -1197,8 +1298,24 @@ function loadDatabase(): LabConnectDatabase {
       const raw = fs.readFileSync(DB_FILE, 'utf8');
       const parsed = JSON.parse(raw) as LabConnectDatabase;
       if (parsed && Array.isArray(parsed.laboratories) && Array.isArray(parsed.pricings) && Array.isArray(parsed.bookings)) {
+        const seed = buildInitialDatabase();
         if (!Array.isArray(parsed.reviews)) {
-          parsed.reviews = buildInitialDatabase().reviews;
+          parsed.reviews = seed.reviews;
+        }
+        if (!Array.isArray(parsed.notifications)) {
+          parsed.notifications = seed.notifications;
+        }
+        if (!Array.isArray(parsed.settlementsLedger)) {
+          parsed.settlementsLedger = seed.settlementsLedger;
+        }
+        if (parsed.adminBootstrapped === undefined) {
+          parsed.adminBootstrapped = Boolean(process.env.SEED_ADMIN_PASSWORD);
+        }
+        for (const lab of parsed.laboratories) {
+          if (!lab.subscriptionTier) {
+            lab.subscriptionTier = lab.id === 'lab-chughtai' || lab.id === 'lab-skmch' ? 'ENTERPRISE' : 'GROWTH';
+            lab.monthlySaasFeePkr = lab.subscriptionTier === 'ENTERPRISE' ? 45000 : 18500;
+          }
         }
         return parsed;
       }
@@ -1234,6 +1351,16 @@ function appendAudit(actor: string, role: UserRole | 'SYSTEM', action: string, t
     timestamp: new Date().toISOString(),
   });
   if (db.auditLogs.length > 150) db.auditLogs.length = 150;
+}
+
+function pushNotification(entry: Omit<NotificationRecord, 'id' | 'read' | 'createdAt'>) {
+  db.notifications.unshift({
+    ...entry,
+    id: `notif-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+    read: false,
+    createdAt: new Date().toISOString(),
+  });
+  if (db.notifications.length > 200) db.notifications.length = 200;
 }
 
 // ==========================================
@@ -1476,6 +1603,32 @@ function requireRole(...allowedRoles: UserRole[]) {
 }
 
 // ==========================================
+// SLIDING-WINDOW RATE LIMITER & SECURITY HEADERS
+// ==========================================
+
+const RATE_LIMIT_BUCKETS = new Map<string, number[]>();
+
+function slidingWindowLimiter(maxRequests: number, windowMs: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip || req.socket.remoteAddress || 'local';
+    const key = `${ip}:${req.path}`;
+    const now = Date.now();
+    const recent = (RATE_LIMIT_BUCKETS.get(key) || []).filter((ts) => now - ts < windowMs);
+    if (recent.length >= maxRequests) {
+      return res.status(429).json({
+        success: false,
+        error: 'Rate limit exceeded. Please wait briefly before retrying.',
+      });
+    }
+    recent.push(now);
+    RATE_LIMIT_BUCKETS.set(key, recent);
+    res.setHeader('X-RateLimit-Limit', String(maxRequests));
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, maxRequests - recent.length)));
+    next();
+  };
+}
+
+// ==========================================
 // EXPRESS SERVER STARTUP
 // ==========================================
 
@@ -1484,6 +1637,13 @@ async function startServer() {
   const PORT = process.env.PORT || 3000;
 
   app.use(express.json({ limit: '5mb' }));
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+  app.use('/api/auth', slidingWindowLimiter(45, 5 * 60 * 1000));
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (
@@ -1936,6 +2096,67 @@ async function startServer() {
     });
   });
 
+  // Check whether initial Super Admin setup is still pending
+  app.get('/api/auth/admin/status', (_req: Request, res: Response) => {
+    return res.json({
+      success: true,
+      setupRequired: !db.adminBootstrapped && !process.env.SEED_ADMIN_PASSWORD,
+    });
+  });
+
+  // One-time initial Super Admin setup (permanently locked after first use or when env seed password is set)
+  app.post('/api/auth/admin/setup', (req: Request, res: Response) => {
+    if (db.adminBootstrapped || process.env.SEED_ADMIN_PASSWORD) {
+      return res.status(403).json({
+        success: false,
+        error: 'Regulatory admin console is already initialized. Sign in with existing credentials.',
+      });
+    }
+    const { name, email, password } = req.body || {};
+    if (!name || String(name).trim().length < 3) {
+      return res.status(400).json({ success: false, error: 'Administrator full name must be at least 3 characters' });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ success: false, error: 'Valid institutional email is required' });
+    }
+    if (!password || String(password).length < 8) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    let adminUser = db.users.find(
+      (u) => u.email.toLowerCase() === cleanEmail && (u.role === 'SUPER_ADMIN' || u.role === 'PHC_INSPECTOR')
+    );
+
+    if (adminUser) {
+      adminUser.name = String(name).trim();
+      adminUser.passwordHash = hashPassword(String(password));
+    } else {
+      adminUser = {
+        id: `usr-admin-${Date.now()}`,
+        name: String(name).trim(),
+        phone: '+923001122334',
+        email: cleanEmail,
+        passwordHash: hashPassword(String(password)),
+        role: 'SUPER_ADMIN',
+        area: 'Lahore Division, Punjab',
+        familyMembers: [],
+        createdAt: new Date().toISOString(),
+      };
+      db.users.push(adminUser);
+    }
+
+    db.adminBootstrapped = true;
+    appendAudit(adminUser.name, adminUser.role, 'ADMIN_INITIAL_SETUP', adminUser.email);
+    saveDatabase();
+
+    return res.status(201).json({
+      success: true,
+      sessionToken: createSessionToken(adminUser),
+      user: sanitizeUser(adminUser),
+    });
+  });
+
   // Dedicated PHC Admin & Inspector Login
   app.post('/api/auth/admin/login', (req: Request, res: Response) => {
     const { email, password } = req.body;
@@ -1950,6 +2171,7 @@ async function startServer() {
     if (!adminUser || !verifyPassword(password, adminUser.passwordHash)) {
       return res.status(401).json({ success: false, error: 'Invalid regulatory administrator credentials' });
     }
+    db.adminBootstrapped = true;
     appendAudit(adminUser.name, adminUser.role, 'ADMIN_CONSOLE_SIGN_IN', adminUser.email);
     saveDatabase();
 
@@ -2067,6 +2289,7 @@ async function startServer() {
   app.post('/api/bookings', requireRole('PATIENT', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const {
       patientName,
+      familyMemberId,
       patientPhone,
       patientEmail,
       patientArea,
@@ -2082,6 +2305,18 @@ async function startServer() {
 
     if (!patientName || patientName.trim().length < 3) {
       return res.status(400).json({ success: false, error: 'Patient full name must be at least 3 characters' });
+    }
+
+    let resolvedFamilyMemberName: string | undefined;
+    let resolvedFamilyMemberId: string | undefined;
+    if (familyMemberId && req.authUser?.familyMembers?.length) {
+      const mem = req.authUser.familyMembers.find((f) => f.id === familyMemberId);
+      if (mem) {
+        resolvedFamilyMemberId = mem.id;
+        resolvedFamilyMemberName = mem.name.includes(`(${mem.relationship})`)
+          ? mem.name
+          : `${mem.name} (${mem.relationship})`;
+      }
     }
 
     const normalizedPhone = normalizePakistaniPhone(patientPhone);
@@ -2184,6 +2419,8 @@ async function startServer() {
       bookingNumber,
       patientUserId: req.authUser?.id,
       patientName: patientName.trim(),
+      familyMemberId: resolvedFamilyMemberId,
+      familyMemberName: resolvedFamilyMemberName,
       patientPhone: normalizedPhone,
       patientEmail: patientEmail.trim().toLowerCase(),
       patientArea: patientArea || targetBranch.area,
@@ -2205,7 +2442,7 @@ async function startServer() {
           id: `trk-${Date.now()}`,
           stage: 'BOOKING_CREATED',
           title: 'Appointment Booked',
-          description: `${mode === 'HOME_COLLECTION' ? 'Home collection' : 'Branch walk-in'} reserved at ${targetBranch.name}. Total: PKR ${totalPkr.toLocaleString()}.`,
+          description: `${mode === 'HOME_COLLECTION' ? 'Home collection' : 'Branch walk-in'} reserved at ${targetBranch.name}${resolvedFamilyMemberName ? ` for ${resolvedFamilyMemberName}` : ''}. Total: PKR ${totalPkr.toLocaleString()}.`,
           actor: req.authUser!.name,
           location: mode === 'HOME_COLLECTION' ? streetAddress.trim() : targetBranch.address,
           timestamp: nowIso,
@@ -2215,6 +2452,22 @@ async function startServer() {
     };
 
     db.bookings.unshift(newBooking);
+    pushNotification({
+      recipientRole: 'LAB_ADMIN',
+      targetLabId: targetLab.id,
+      title: `New Booking ${bookingNumber}`,
+      message: `${patientName.trim()} booked ${testIds.length} test(s) at ${targetBranch.name} for ${scheduledDate}.`,
+      category: 'BOOKING',
+      relatedId: bookingNumber,
+    });
+    pushNotification({
+      recipientRole: 'PATIENT',
+      targetPhone: normalizedPhone,
+      title: `Appointment Confirmed (${bookingNumber})`,
+      message: `${targetLab.name} scheduled for ${scheduledDate} (${scheduledTimeSlot}).`,
+      category: 'BOOKING',
+      relatedId: bookingNumber,
+    });
     appendAudit(req.authUser!.name, req.authUser!.role, 'BOOKING_CREATED', `${bookingNumber} @ ${targetBranch.name}`);
     saveDatabase();
 
@@ -2541,6 +2794,22 @@ async function startServer() {
       });
 
       appendAudit(actor.name, actor.role, 'PHLEBOTOMIST_DISPATCHED', `${booking.bookingNumber} -> ${displayName}`);
+      pushNotification({
+        recipientRole: 'PATIENT',
+        targetPhone: booking.patientPhone,
+        title: `Phlebotomist Dispatched (${booking.bookingNumber})`,
+        message: `${displayName} is en route for your sample collection.`,
+        category: 'DISPATCH',
+        relatedId: booking.bookingNumber,
+      });
+      pushNotification({
+        recipientRole: 'PHLEBOTOMIST',
+        targetUserId: rider.id,
+        title: `New Route Assigned (${booking.bookingNumber})`,
+        message: `Collect sample for ${booking.patientName} at ${booking.streetAddress || booking.patientArea}.`,
+        category: 'DISPATCH',
+        relatedId: booking.bookingNumber,
+      });
       saveDatabase();
       return res.json({ success: true, message: `Assigned ${displayName} to ${booking.bookingNumber}`, data: booking });
     }
@@ -2697,6 +2966,8 @@ async function startServer() {
       labId: booking.labId,
       branchName: booking.branchName || branch?.name || lab?.name || 'Lahore Branch',
       patientName: booking.patientName,
+      familyMemberId: booking.familyMemberId,
+      familyMemberName: booking.familyMemberName,
       patientPhone: booking.patientPhone,
       patientEmail: recipientEmailOverride?.trim() || booking.patientEmail,
       fileName: resolvedFileName.endsWith('.pdf') ? resolvedFileName : `${resolvedFileName}.pdf`,
@@ -2745,6 +3016,17 @@ async function startServer() {
         timestamp: emailLog.sentAt,
       });
     }
+
+    pushNotification({
+      recipientRole: 'PATIENT',
+      targetPhone: booking.patientPhone,
+      title: `Signed PDF Report Published (${booking.bookingNumber})`,
+      message: emailLog
+        ? `Your signed report from ${lab?.name || 'Laboratory'} is ready and emailed to ${emailLog.recipientEmail}.`
+        : `Your signed report from ${lab?.name || 'Laboratory'} is ready to download in PDF Reports.`,
+      category: 'REPORT',
+      relatedId: booking.bookingNumber,
+    });
 
     appendAudit(
       req.authUser!.name,
@@ -2841,24 +3123,138 @@ async function startServer() {
   );
 
   // ==========================================
+  // NOTIFICATIONS, LAB BRANCHES & SAAS SETTLEMENTS
+  // ==========================================
+
+  app.get('/api/notifications', requireRole('PATIENT', 'LAB_ADMIN', 'PHLEBOTOMIST', 'SUPER_ADMIN', 'PHC_INSPECTOR'), (req: AuthenticatedRequest, res: Response) => {
+    const actor = req.authUser!;
+    const actorPhone = normalizePakistaniPhone(actor.phone);
+    const items = db.notifications.filter((n) => {
+      if (actor.role === 'SUPER_ADMIN' || actor.role === 'PHC_INSPECTOR') {
+        return n.recipientRole === actor.role || n.recipientRole === 'ALL';
+      }
+      if (actor.role === 'PATIENT') {
+        return (
+          n.recipientRole === 'PATIENT' &&
+          (n.targetUserId === actor.id || (n.targetPhone && normalizePakistaniPhone(n.targetPhone) === actorPhone))
+        );
+      }
+      if (actor.role === 'LAB_ADMIN') {
+        return n.recipientRole === 'LAB_ADMIN' && (!n.targetLabId || n.targetLabId === actor.labId);
+      }
+      if (actor.role === 'PHLEBOTOMIST') {
+        return n.recipientRole === 'PHLEBOTOMIST' && (!n.targetUserId || n.targetUserId === actor.id);
+      }
+      return false;
+    });
+
+    return res.json({
+      success: true,
+      unreadCount: items.filter((n) => !n.read).length,
+      data: items,
+    });
+  });
+
+  app.post('/api/notifications/read', requireRole('PATIENT', 'LAB_ADMIN', 'PHLEBOTOMIST', 'SUPER_ADMIN', 'PHC_INSPECTOR'), (req: AuthenticatedRequest, res: Response) => {
+    const actor = req.authUser!;
+    const actorPhone = normalizePakistaniPhone(actor.phone);
+    const { notificationId } = req.body || {};
+
+    db.notifications.forEach((n) => {
+      if (notificationId && n.id !== notificationId) return;
+      const belongs =
+        (actor.role === 'PATIENT' && (n.targetUserId === actor.id || (n.targetPhone && normalizePakistaniPhone(n.targetPhone) === actorPhone))) ||
+        (actor.role === 'LAB_ADMIN' && n.recipientRole === 'LAB_ADMIN' && n.targetLabId === actor.labId) ||
+        (actor.role === 'PHLEBOTOMIST' && n.recipientRole === 'PHLEBOTOMIST' && (!n.targetUserId || n.targetUserId === actor.id)) ||
+        ((actor.role === 'SUPER_ADMIN' || actor.role === 'PHC_INSPECTOR') && n.recipientRole === actor.role);
+      if (belongs) n.read = true;
+    });
+    saveDatabase();
+    return res.json({ success: true });
+  });
+
+  app.patch('/api/lab/branches/:branchId', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const actor = req.authUser!;
+    const lab = db.laboratories.find((l) => l.branches.some((b) => b.id === req.params.branchId));
+    if (!lab) {
+      return res.status(404).json({ success: false, error: 'Laboratory branch not found' });
+    }
+    if (actor.role === 'LAB_ADMIN' && actor.labId !== lab.id) {
+      return res.status(403).json({ success: false, error: 'Cannot modify branches belonging to another laboratory' });
+    }
+    const branch = lab.branches.find((b) => b.id === req.params.branchId)!;
+    const { operatingHours, homeCollectionFeePkr } = req.body;
+    if (operatingHours && String(operatingHours).trim().length >= 3) {
+      branch.operatingHours = String(operatingHours).trim();
+    }
+    if (homeCollectionFeePkr !== undefined) {
+      const fee = Number(homeCollectionFeePkr);
+      if (isNaN(fee) || fee < 0 || fee > 5000) {
+        return res.status(400).json({ success: false, error: 'Home collection fee must be between PKR 0 and PKR 5,000' });
+      }
+      branch.homeCollectionFeePkr = fee;
+    }
+    appendAudit(actor.name, actor.role, 'BRANCH_CONFIG_UPDATED', `${branch.name} (Fee: PKR ${branch.homeCollectionFeePkr})`);
+    saveDatabase();
+    return res.json({ success: true, data: branch });
+  });
+
+  app.get('/api/lab/settlements', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const actor = req.authUser!;
+    const labId = actor.role === 'LAB_ADMIN' ? actor.labId : String(req.query.labId || '');
+    const lab = db.laboratories.find((l) => l.id === labId);
+    if (!lab) {
+      return res.status(404).json({ success: false, error: 'Laboratory not found' });
+    }
+    const activeBookings = db.bookings.filter((b) => b.labId === lab.id && b.status !== 'CANCELLED');
+    const unsettledBookings = activeBookings.filter((b) => !b.settlementId);
+    const unsettledGrossPkr = unsettledBookings.reduce((s, b) => s + b.totalPkr, 0);
+    const unsettledCommissionPkr = Math.round(unsettledGrossPkr * 0.08);
+    const history = db.settlementsLedger.filter((s) => s.labId === lab.id);
+
+    return res.json({
+      success: true,
+      data: {
+        labId: lab.id,
+        labName: lab.name,
+        subscriptionTier: lab.subscriptionTier || 'GROWTH',
+        monthlySaasFeePkr: lab.monthlySaasFeePkr ?? 18500,
+        commissionRatePct: 8,
+        unsettledBookingsCount: unsettledBookings.length,
+        unsettledGrossPkr,
+        unsettledCommissionPkr,
+        unsettledNetPayablePkr: unsettledGrossPkr - unsettledCommissionPkr,
+        settlementHistory: history,
+      },
+    });
+  });
+
+  // ==========================================
   // ADMIN & PHC REGULATORY ENDPOINTS (STRICT RBAC)
   // ==========================================
 
   app.get('/api/admin/overview', requireRole('SUPER_ADMIN', 'PHC_INSPECTOR'), (_req: Request, res: Response) => {
     const labSettlements = db.laboratories.map((lab) => {
       const labBookings = db.bookings.filter((b) => b.labId === lab.id && b.status !== 'CANCELLED');
+      const unsettled = labBookings.filter((b) => !b.settlementId);
       const grossPkr = labBookings.reduce((sum, b) => sum + b.totalPkr, 0);
       const commissionPkr = Math.round(grossPkr * 0.08);
+      const unsettledGrossPkr = unsettled.reduce((sum, b) => sum + b.totalPkr, 0);
+      const unsettledCommissionPkr = Math.round(unsettledGrossPkr * 0.08);
       return {
         labId: lab.id,
         labName: lab.name,
         phcLicence: lab.phcLicence,
         verificationStatus: lab.verificationStatus,
+        subscriptionTier: lab.subscriptionTier || 'GROWTH',
+        monthlySaasFeePkr: lab.monthlySaasFeePkr ?? 18500,
         bookingsCount: labBookings.length,
         completedCount: labBookings.filter((b) => b.status === 'COMPLETED').length,
         grossPkr,
         commissionPkr,
         netPayablePkr: grossPkr - commissionPkr,
+        unsettledCount: unsettled.length,
+        unsettledNetPkr: unsettledGrossPkr - unsettledCommissionPkr,
       };
     });
 
@@ -2867,14 +3263,22 @@ async function startServer() {
       data: {
         laboratories: db.laboratories,
         settlements: labSettlements,
+        settlementHistory: db.settlementsLedger,
         auditLogs: db.auditLogs,
         emailLogs: db.emailLogs,
+        securityStatus: {
+          authAlgorithm: 'HMAC-SHA256 Signed Bearer Tokens',
+          passwordHashing: 'Node crypto scrypt + timingSafeEqual',
+          rateLimiter: 'Sliding Window (45 req / 5 min on /api/auth/*)',
+          pdfIntegrity: 'SHA-256 Digest + Strict Owner RBAC',
+        },
         metrics: {
           totalBookings: db.bookings.length,
           totalReports: db.reports.length,
           totalEmailsSent: db.emailLogs.length,
           grossVolumePkr: labSettlements.reduce((s, r) => s + r.grossPkr, 0),
           totalCommissionPkr: labSettlements.reduce((s, r) => s + r.commissionPkr, 0),
+          totalSaasMrrPkr: labSettlements.reduce((s, r) => s + r.monthlySaasFeePkr, 0),
         },
       },
     });
@@ -2895,6 +3299,14 @@ async function startServer() {
     lab.verificationStatus = nextStatus;
     lab.verifiedAt = new Date().toISOString().slice(0, 10);
     lab.verifiedBy = req.authUser!.name;
+    pushNotification({
+      recipientRole: 'LAB_ADMIN',
+      targetLabId: lab.id,
+      title: nextStatus === 'VERIFIED' ? 'PHC Licence Verified' : 'PHC Licence Revoked',
+      message: `${req.authUser!.name} updated ${lab.name} PHC compliance status to ${nextStatus}.`,
+      category: 'COMPLIANCE',
+      relatedId: lab.id,
+    });
     appendAudit(
       req.authUser!.name,
       req.authUser!.role,
@@ -2905,43 +3317,193 @@ async function startServer() {
     return res.json({ success: true, data: lab });
   });
 
+  app.patch('/api/admin/labs/:id/subscription', requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const lab = db.laboratories.find((l) => l.id === req.params.id);
+    if (!lab) {
+      return res.status(404).json({ success: false, error: 'Laboratory not found' });
+    }
+    const tier = req.body?.subscriptionTier;
+    const feeMap: Record<'STARTER' | 'GROWTH' | 'ENTERPRISE', number> = {
+      STARTER: 0,
+      GROWTH: 18500,
+      ENTERPRISE: 45000,
+    };
+    if (!tier || !(tier in feeMap)) {
+      return res.status(400).json({ success: false, error: 'Subscription tier must be STARTER, GROWTH, or ENTERPRISE' });
+    }
+    lab.subscriptionTier = tier;
+    lab.monthlySaasFeePkr = feeMap[tier as keyof typeof feeMap];
+    appendAudit(req.authUser!.name, req.authUser!.role, 'LAB_SUBSCRIPTION_UPDATED', `${lab.name} -> ${tier} (PKR ${lab.monthlySaasFeePkr}/mo)`);
+    saveDatabase();
+    return res.json({ success: true, data: lab });
+  });
+
+  app.post('/api/admin/settlements/settle', requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const { labId, deductSaasFee } = req.body || {};
+    const lab = db.laboratories.find((l) => l.id === labId);
+    if (!lab) {
+      return res.status(404).json({ success: false, error: 'Laboratory not found' });
+    }
+    const unsettled = db.bookings.filter((b) => b.labId === lab.id && b.status !== 'CANCELLED' && !b.settlementId);
+    if (unsettled.length === 0) {
+      return res.status(409).json({ success: false, error: `No unsettled bookings remaining for ${lab.name}` });
+    }
+    const grossPkr = unsettled.reduce((sum, b) => sum + b.totalPkr, 0);
+    const commissionPkr = Math.round(grossPkr * 0.08);
+    const saasFeePkr = deductSaasFee ? lab.monthlySaasFeePkr ?? 0 : 0;
+    const netPayablePkr = Math.max(0, grossPkr - commissionPkr - saasFeePkr);
+    const settlementId = `stl-${Date.now()}`;
+    const referenceCode = `IBFT-${lab.slug.slice(0, 4).toUpperCase()}-${Math.floor(10000 + Math.random() * 89999)}`;
+
+    const record: SettlementPayoutRecord = {
+      id: settlementId,
+      labId: lab.id,
+      labName: lab.name,
+      periodLabel: new Date().toISOString().slice(0, 10),
+      bookingCount: unsettled.length,
+      grossPkr,
+      commissionPkr,
+      saasFeePkr,
+      netPayablePkr,
+      referenceCode,
+      settledAt: new Date().toISOString(),
+      settledBy: req.authUser!.name,
+    };
+
+    unsettled.forEach((b) => {
+      b.settlementId = settlementId;
+    });
+    db.settlementsLedger.unshift(record);
+    pushNotification({
+      recipientRole: 'LAB_ADMIN',
+      targetLabId: lab.id,
+      title: `Payout Settled (${referenceCode})`,
+      message: `PKR ${netPayablePkr.toLocaleString()} settled for ${unsettled.length} booking(s) after 8% platform commission.`,
+      category: 'BILLING',
+      relatedId: settlementId,
+    });
+    appendAudit(req.authUser!.name, req.authUser!.role, 'SETTLEMENT_DISBURSED', `${lab.name}: PKR ${netPayablePkr.toLocaleString()} (${referenceCode})`);
+    saveDatabase();
+    return res.status(201).json({ success: true, message: `Settled PKR ${netPayablePkr.toLocaleString()} (${referenceCode})`, data: record });
+  });
+
+  app.get('/api/admin/audit/export', requireRole('SUPER_ADMIN', 'PHC_INSPECTOR'), (_req: Request, res: Response) => {
+    const csvEscape = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
+    const header = ['ID', 'Timestamp', 'Actor', 'Role', 'Action', 'Target'].join(',');
+    const rows = db.auditLogs.map((l) =>
+      [csvEscape(l.id), csvEscape(l.timestamp), csvEscape(l.actor), csvEscape(l.role), csvEscape(l.action), csvEscape(l.target)].join(',')
+    );
+    const csv = [header, ...rows].join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="labconnect_audit_logs.csv"');
+    return res.send(csv);
+  });
+
   // ==========================================
-  // GEMINI CLINICAL REPORT EXPLAINER
+  // GEMINI CLINICAL REPORT EXPLAINER (EN / UR)
   // ==========================================
 
   app.post('/api/ai/explain', async (req: Request, res: Response) => {
     try {
-      const { testName, testValue, referenceRange, language } = req.body;
-      if (!process.env.GEMINI_API_KEY) {
-        return res.json({
+      const sanitizeClinicalText = (val: unknown) =>
+        String(val || '')
+          .replace(/[<>{}`]/g, '')
+          .slice(0, 220)
+          .trim();
+
+      const language: 'EN' | 'UR' = req.body?.language === 'UR' ? 'UR' : 'EN';
+      const testName = sanitizeClinicalText(req.body?.testName);
+      const testValue = sanitizeClinicalText(req.body?.testValue);
+      const referenceRange = sanitizeClinicalText(req.body?.referenceRange);
+      const rawParams = Array.isArray(req.body?.parameters) ? req.body.parameters.slice(0, 12) : [];
+
+      interface SafeClinicalParam {
+        parameter: string;
+        observedValue: string;
+        unit: string;
+        referenceRange: string;
+        flag: string;
+      }
+
+      const safeParams: SafeClinicalParam[] = rawParams.map((p: Record<string, unknown>) => ({
+        parameter: sanitizeClinicalText(p.parameter),
+        observedValue: sanitizeClinicalText(p.observedValue),
+        unit: sanitizeClinicalText(p.unit),
+        referenceRange: sanitizeClinicalText(p.referenceRange),
+        flag: sanitizeClinicalText(p.flag || 'NORMAL'),
+      }));
+
+      const buildClinicalFallback = (modelLabel: string) => {
+        if (safeParams.length > 0) {
+          const flagged = safeParams.filter((p) => p.flag !== 'NORMAL');
+          const summaryEn =
+            flagged.length > 0
+              ? `Panel Review (${safeParams.length} markers): ${flagged.map((f) => `${f.parameter} (${f.observedValue} ${f.unit}, ref ${f.referenceRange} — ${f.flag})`).join('; ')} sit outside standard laboratory reference bounds, while the remaining ${safeParams.length - flagged.length} parameter(s) are within range. Please share these verified results with your physician for clinical correlation.`
+              : `Panel Review (${safeParams.length} markers): All evaluated parameters fall within printed laboratory reference limits. Continue routine follow-up with your attending physician.`;
+          const summaryUr =
+            flagged.length > 0
+              ? `رپورٹ کا خلاصہ (${safeParams.length} ٹیسٹ): ${flagged.map((f) => `${f.parameter}: ${f.observedValue} ${f.unit} (حوالہ: ${f.referenceRange})`).join('، ')} مقررہ حد سے مختلف ہیں جبکہ باقی ٹیسٹ نارمل حد میں ہیں۔ براہ کرم حتمی تشخیص کے لیے اپنے مستند معالج سے مشورہ کریں۔`
+              : `رپورٹ کا خلاصہ (${safeParams.length} ٹیسٹ): تمام نتائج لیبارٹری کی مقررہ نارمل حد کے اندر ہیں۔ حتمی رائے کے لیے اپنے معالج سے رابطہ کریں۔`;
+
+          return {
+            success: true,
+            model: modelLabel,
+            explanation: language === 'UR' ? summaryUr : summaryEn,
+            disclaimer: 'Educational summary only. Does not replace medical advice or clinical diagnosis.',
+          };
+        }
+
+        return {
           success: true,
-          model: 'gemini-3.8-flash (Clinical Fallback)',
+          model: modelLabel,
           explanation:
             language === 'UR'
               ? `یہ ٹیسٹ ${testName} کا نتیجہ ${testValue} ظاہر کرتا ہے۔ عمومی حوالہ جاتی حد ${referenceRange} ہے۔ براہ کرم اپنے مستند معالج سے حتمی مشورہ حاصل کریں۔`
               : `Your ${testName} result is ${testValue} (Reference Range: ${referenceRange}). Please consult a qualified physician for personalized clinical interpretation.`,
           disclaimer: 'Educational summary only. Does not replace medical advice or clinical diagnosis.',
-        });
+        };
+      };
+
+      if (!process.env.GEMINI_API_KEY) {
+        return res.json(buildClinicalFallback('gemini-4-hydrogen (Clinical Fallback)'));
       }
 
-      const prompt = `You are LabConnect Intelligence, a medical report explainer in Lahore, Pakistan.
-Explain this test parameter in simple ${language === 'UR' ? 'conversational Urdu' : 'plain English'}:
-Test Name: ${testName}
-Observed Value: ${testValue}
-Reference Range: ${referenceRange}
-Rules: Explain what it measures, compare politely to reference range, never prescribe drugs or diagnose, advise physician follow-up. Under 90 words.`;
+      const panelBlock =
+        safeParams.length > 0
+          ? safeParams
+              .map((p) => `- ${p.parameter}: ${p.observedValue} ${p.unit} (Ref: ${p.referenceRange}, Flag: ${p.flag})`)
+              .join('\n')
+          : `Test Name: ${testName}\nObserved Value: ${testValue}\nReference Range: ${referenceRange}`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-      });
+      const prompt = `You are LabConnect Intelligence, a non-diagnostic medical report explainer in Lahore, Pakistan.
+Summarize these verified laboratory results in simple ${language === 'UR' ? 'conversational Urdu (clear Nastaliq script)' : 'plain English'}:
+<REPORT_DATA>
+${panelBlock}
+</REPORT_DATA>
+Safety rules: Explain what these parameters measure and compare them calmly against the printed reference ranges. Never prescribe medicines, dosages, or deliver a definitive medical diagnosis, and advise following up with a licensed physician. Keep response under 130 words.`;
 
-      return res.json({
-        success: true,
-        model: 'gemini-3.8-flash',
-        explanation: response.text || 'Explanation unavailable.',
-        disclaimer: 'Educational summary only. Does not replace medical consultation.',
-      });
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('GEMINI_UPSTREAM_TIMEOUT')), 8000)
+        );
+        const response = await Promise.race([
+          ai.models.generateContent({
+            model: 'gemini-4-hydrogen',
+            contents: prompt,
+          }),
+          timeoutPromise,
+        ]);
+
+        return res.json({
+          success: true,
+          model: 'gemini-4-hydrogen',
+          explanation: response.text || buildClinicalFallback('gemini-4-hydrogen').explanation,
+          disclaimer: 'Educational summary only. Does not replace medical consultation.',
+        });
+      } catch (upstreamErr) {
+        console.warn('Gemini Explain upstream fallback triggered:', upstreamErr);
+        return res.json(buildClinicalFallback('gemini-4-hydrogen (Resilient Clinical Fallback)'));
+      }
     } catch (err) {
       console.error('Gemini Explain Error:', err);
       return res.status(500).json({ success: false, error: 'Failed to generate explanation' });

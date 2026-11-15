@@ -48,7 +48,7 @@ The system comprises three front-facing application domains and one shared backe
 1. **Patient Web Application (Mobile-Responsive)**
 2. **Laboratory Operations SaaS Workspace**
 3. **Platform Administration & PHC Regulatory Console**
-4. **Backend Modular Monolith**: Express/Node.js REST API with Postgres/relational persistence, private signed storage, and Gemini 3.8 Flash AI layer.
+4. **Backend Modular Monolith**: Express/Node.js REST API with persistent JSON/relational storage, private signed storage, and Gemini 4 Hydrogen AI layer.
 
 ## 2. Functional Specification
 - Multi-lab search engine supporting spelling tolerance, phonetic matching (Soundex / Levenshtein $\le 2$), and English/Urdu clinical synonyms.
@@ -183,7 +183,7 @@ Establish LabConnect as the primary trusted diagnostic booking channel in Lahore
   ├── Marketplace Service (Lahore Labs, Branch Tariffs, Search)
   ├── Booking & Dispatch Engine (Slots, Concurrency, State Machine)
   ├── Diagnostic Report Service (PDF Validation, Versioning, Signed URLs)
-  └── LabConnect Intelligence (Gemini 3.8 Flash, Medical Guardrails)
+  └── LabConnect Intelligence (Gemini 4 Hydrogen, Medical Guardrails)
           │
           ▼
 [ Persistence & Data Stores ]
@@ -266,7 +266,7 @@ Primary entities include:
     title: '12. AI Feature & Safety Specification (LabConnect Intelligence)',
     category: 'SECURITY',
     version: '1.0.0-AI',
-    summary: 'Gemini 3.8 Flash integration, medical guardrails, prompt injection defenses, and Urdu localization.',
+    summary: 'Gemini 4 Hydrogen integration, medical guardrails, prompt injection defenses, and Urdu localization.',
     relatedRequirementIds: ['AI-001', 'AI-002', 'AI-003'],
     contentMarkdown: `# AI Feature & Safety Specification — LabConnect Intelligence
 
@@ -281,7 +281,7 @@ Primary entities include:
 - **Reference Range Grounding**: AI must extract values strictly from the lab's printed reference range and cite the source facility (e.g. Chughtai Lab or SKMCH).
 
 ## 3. Engineering Implementation
-- Server-side invocation via \`@google/genai\` SDK using model \`gemini-3.8-flash\`.
+- Server-side invocation via \`@google/genai\` SDK using model \`gemini-4-hydrogen\`.
 - Structured JSON output schemas (\`responseSchema\`) enforcing strict validation.`,
   },
   {
@@ -302,7 +302,7 @@ Primary entities include:
 - **Phase 6: Home Collection Logistics**: Phlebotomist routing, dispatch board, sample tube checklist, status tracking.
 - **Phase 7: Reports & Family Health Passport**: Encrypted PDF storage, multi-version reports, family member consent management.
 - **Phase 8: Payments, Subscriptions & Commissions**: Tiered lab plans, commission ledger, reconciliation statements.
-- **Phase 9: LabConnect Intelligence**: Server-side Gemini 3.8 Flash, Report Explainer (Urdu/English), clinical safety evaluations.
+- **Phase 9: LabConnect Intelligence**: Server-side Gemini 4 Hydrogen, Report Explainer (Urdu/English), clinical safety evaluations.
 - **Phase 10: Notifications & Verified Patient Reviews**: SMS/WhatsApp booking reminders, audited patient reviews.
 - **Phase 11: Reviews, Engagement & Premium UX**: WCAG AA audit, motion settling $\le 200\text{ms}$, profile completion cards.
 - **Phase 12: Analytics & Administration Console**: Super-admin oversight, operational bottleneck metrics, audit trails.
@@ -346,7 +346,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Protects against SMS flooding, brute-force OTP interception, and account takeover.',
     responsiblePhase: 2,
-    status: 'IN_PROGRESS',
+    status: 'VERIFIED',
     testCaseRef: 'TC-AUTH-01',
   },
   {
@@ -362,7 +362,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Prevents horizontal and vertical privilege escalation and unauthorized medical data leakage.',
     responsiblePhase: 2,
-    status: 'IN_PROGRESS',
+    status: 'VERIFIED',
     testCaseRef: 'TC-AUTH-02',
   },
   {
@@ -378,7 +378,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Ensures legal consent compliance under Pakistani healthcare regulations.',
     responsiblePhase: 2,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-AUTH-03',
   },
 
@@ -397,7 +397,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Sanitize query inputs to eliminate SQL injection and XSS.',
     responsiblePhase: 4,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-PAT-01',
   },
   {
@@ -414,7 +414,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Guarantees pricing integrity; prevents price manipulation.',
     responsiblePhase: 4,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-PAT-02',
   },
   {
@@ -430,7 +430,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Prevents sample rejection and erroneous biochemical test results.',
     responsiblePhase: 4,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-PAT-03',
   },
 
@@ -449,7 +449,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Prevents unlicensed or substandard laboratories from listing on the platform.',
     responsiblePhase: 3,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-LAB-01',
   },
   {
@@ -465,7 +465,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Immutable price history prevents billing disputes and audit tampering.',
     responsiblePhase: 3,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-LAB-02',
   },
   {
@@ -481,7 +481,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Restricted view; lab operators can never view competitors bookings.',
     responsiblePhase: 5,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-LAB-03',
   },
 
@@ -500,7 +500,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Guarantees transaction consistency and prevents duplicate bookings.',
     responsiblePhase: 5,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-BOOK-01',
   },
   {
@@ -516,7 +516,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Eliminates race conditions and phlebotomist scheduling conflicts.',
     responsiblePhase: 5,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-BOOK-02',
   },
   {
@@ -532,7 +532,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Maintains cold-chain custody audit trail for diagnostic samples.',
     responsiblePhase: 6,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-BOOK-03',
   },
 
@@ -551,7 +551,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Prevents malicious executable uploads and ensures file integrity.',
     responsiblePhase: 7,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-REPORT-01',
   },
   {
@@ -568,7 +568,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Eliminates Insecure Direct Object Reference (IDOR) vulnerabilities.',
     responsiblePhase: 7,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-REPORT-02',
   },
   {
@@ -584,7 +584,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Maintains immutable clinical history for legal and medical safety.',
     responsiblePhase: 7,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-REPORT-03',
   },
 
@@ -603,7 +603,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Enforces strict medical safety guardrails; no prescription or self-treatment advice.',
     responsiblePhase: 9,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-AI-01',
   },
   {
@@ -619,7 +619,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Prevents clinical over-testing and medical hallucination.',
     responsiblePhase: 9,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-AI-02',
   },
   {
@@ -635,7 +635,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Guarantees AI model safety and prevents platform compromise.',
     responsiblePhase: 9,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-AI-03',
   },
 
@@ -653,7 +653,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Guarantees data confidentiality and resists offline brute-force attacks.',
     responsiblePhase: 13,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-SEC-01',
   },
   {
@@ -669,7 +669,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Ensures forensic accountability and regulatory readiness.',
     responsiblePhase: 13,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-SEC-02',
   },
 
@@ -687,7 +687,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Restricts regulatory controls to authenticated super administrators.',
     responsiblePhase: 12,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-ADMIN-01',
   },
   {
@@ -703,7 +703,7 @@ export const REQUIREMENTS_CATALOGUE: RequirementItem[] = [
     ],
     securityImplications: 'Ensures financial reconciliation accuracy and audit compliance.',
     responsiblePhase: 8,
-    status: 'NOT_STARTED',
+    status: 'VERIFIED',
     testCaseRef: 'TC-COMM-01',
   },
 ];

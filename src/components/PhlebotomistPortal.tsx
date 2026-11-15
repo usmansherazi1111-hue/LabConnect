@@ -29,8 +29,8 @@ export const PhlebotomistPortal: React.FC = () => {
 
   // Auth Form State
   const [authTab, setAuthTab] = useState<'SIGN_IN' | 'SIGN_UP'>('SIGN_IN');
-  const [staffCode, setStaffCode] = useState<string>('MOTO-04');
-  const [staffPhone, setStaffPhone] = useState<string>('+92 321 4455667');
+  const [staffCode, setStaffCode] = useState<string>('');
+  const [staffPhone, setStaffPhone] = useState<string>('');
   const [regFullName, setRegFullName] = useState<string>('');
   const [regCnicLast4, setRegCnicLast4] = useState<string>('');
   const [selectedLabId, setSelectedLabId] = useState<string>('lab-chughtai');
@@ -303,6 +303,7 @@ export const PhlebotomistPortal: React.FC = () => {
                 required
                 value={staffPhone}
                 onChange={(e) => setStaffPhone(e.target.value)}
+                placeholder="+92 3XX XXXXXXX"
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-mono text-slate-800"
               />
             </div>
@@ -324,36 +325,8 @@ export const PhlebotomistPortal: React.FC = () => {
             </button>
           </form>
 
-          <div className="pt-4 border-t border-slate-200 text-[11px] text-slate-500 space-y-1.5">
-            <span className="font-semibold text-slate-700 block">Quick Fill Verified Field Couriers:</span>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthTab('SIGN_IN');
-                setStaffCode('MOTO-04');
-                setStaffPhone('+92 321 4455667');
-                setSelectedLabId('lab-chughtai');
-                setSelectedBranchId('c-branch-jailrd');
-              }}
-              className="w-full text-left p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 flex justify-between font-mono"
-            >
-              <span>MOTO-04 (Ahmad Raza · Chughtai)</span>
-              <span className="text-[#0F5132] font-semibold">Fill</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthTab('SIGN_IN');
-                setStaffCode('MOTO-09');
-                setStaffPhone('+92 333 1122334');
-                setSelectedLabId('lab-idc');
-                setSelectedBranchId('idc-branch-shadman');
-              }}
-              className="w-full text-left p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 flex justify-between font-mono"
-            >
-              <span>MOTO-09 (Tariq Javed · IDC)</span>
-              <span className="text-[#0F5132] font-semibold">Fill</span>
-            </button>
+          <div className="pt-4 border-t border-slate-200 text-[11px] text-slate-500">
+            New riders can switch to <span className="font-semibold text-[#0F5132]">Register Agent</span> above with their laboratory branch code and CNIC last 4 digits.
           </div>
         </div>
       </div>

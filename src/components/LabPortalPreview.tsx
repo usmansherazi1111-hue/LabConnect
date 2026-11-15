@@ -11,6 +11,8 @@ import {
   LaboratoryTestPricing,
   ReportParameter,
   LabPhlebotomistSummary,
+  NotificationRecord,
+  SettlementPayoutRecord,
 } from '../types';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -31,6 +33,8 @@ import {
   ExternalLink,
   Bike,
   Plus,
+  Bell,
+  Wallet,
 } from 'lucide-react';
 
 export const LabPortalPreview: React.FC = () => {
@@ -45,8 +49,8 @@ export const LabPortalPreview: React.FC = () => {
   const [authTab, setAuthTab] = useState<'SIGN_IN' | 'SIGN_UP'>('SIGN_IN');
   const [selectedLabId, setSelectedLabId] = useState<string>('lab-chughtai');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('c-branch-jailrd');
-  const [loginEmail, setLoginEmail] = useState<string>('kamran.lead@chughtailab.pk');
-  const [loginPassword, setLoginPassword] = useState<string>('LabOps@2026');
+  const [loginEmail, setLoginEmail] = useState<string>('');
+  const [loginPassword, setLoginPassword] = useState<string>('');
   const [regFullName, setRegFullName] = useState<string>('');
   const [regPhone, setRegPhone] = useState<string>('');
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -82,10 +86,28 @@ export const LabPortalPreview: React.FC = () => {
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [isDispatchingRider, setIsDispatchingRider] = useState<boolean>(false);
 
-  // Live Tariff Edit State
+  // Live Tariff & Branch Config Edit State
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
   const [editPriceVal, setEditPriceVal] = useState<string>('');
   const [editTatVal, setEditTatVal] = useState<string>('');
+  const [editingBranchId, setEditingBranchId] = useState<string | null>(null);
+  const [editBranchHours, setEditBranchHours] = useState<string>('');
+  const [editBranchFee, setEditBranchFee] = useState<string>('');
+
+  // Settlements & Notifications State
+  const [labNotifications, setLabNotifications] = useState<NotificationRecord[]>([]);
+  const [unreadLabNotifs, setUnreadLabNotifs] = useState<number>(0);
+  const [showLabNotifs, setShowLabNotifs] = useState<boolean>(false);
+  const [settlementSummary, setSettlementSummary] = useState<{
+    subscriptionTier: string;
+    monthlySaasFeePkr: number;
+    commissionRatePct: number;
+    unsettledBookingsCount: number;
+    unsettledGrossPkr: number;
+    unsettledCommissionPkr: number;
+    unsettledNetPayablePkr: number;
+    settlementHistory: SettlementPayoutRecord[];
+  } | null>(null);
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -104,9 +126,11 @@ export const LabPortalPreview: React.FC = () => {
     if (!labUser) return;
     setIsLoading(true);
     try {
-      const [bkRes, ridersRes] = await Promise.all([
+      const [bkRes, ridersRes, notifRes, setRes] = await Promise.all([
         apiClient.getBookings({}, 'lab'),
         apiClient.getLabPhlebotomists(),
+        apiClient.getNotifications('lab'),
+        apiClient.getLabSettlements(),
       ]);
       if (bkRes.success && Array.isArray(bkRes.data)) {
         setBookings(bkRes.data);
@@ -121,6 +145,13 @@ export const LabPortalPreview: React.FC = () => {
         if (ridersRes.data.length > 0) {
           setSelectedRiderId((prev) => ridersRes.data.some((r: LabPhlebotomistSummary) => r.id === prev) ? prev : ridersRes.data[0].id);
         }
+      }
+      if (notifRes.success && Array.isArray(notifRes.data)) {
+        setLabNotifications(notifRes.data);
+        setUnreadLabNotifs(notifRes.unreadCount || 0);
+      }
+      if (setRes.success && setRes.data) {
+        setSettlementSummary(setRes.data);
       }
     } catch (err) {
       console.error('Failed to load lab bookings:', err);
@@ -325,6 +356,23 @@ export const LabPortalPreview: React.FC = () => {
     }
   };
 
+  const handleSaveBranchConfig = async (branchId: string) => {
+    const res = await apiClient.updateLabBranch(branchId, {
+      operatingHours: editBranchHours,
+      homeCollectionFeePkr: Number(editBranchFee),
+    });
+    if (res.success) {
+      setEditingBranchId(null);
+      loadCatalog();
+    }
+  };
+
+  const handleMarkLabNotifsRead = async () => {
+    await apiClient.markNotificationsRead('lab');
+    setLabNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadLabNotifs(0);
+  };
+
   // Unauthenticated Institutional Gate
   if (!labUser) {
     return (
@@ -439,6 +487,7 @@ export const LabPortalPreview: React.FC = () => {
                 required
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="operator@laboratory.pk"
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-800"
               />
             </div>
@@ -450,6 +499,7 @@ export const LabPortalPreview: React.FC = () => {
                 required
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="Enter staff password"
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-mono text-slate-800"
               />
             </div>
@@ -471,29 +521,8 @@ export const LabPortalPreview: React.FC = () => {
             </button>
           </form>
 
-          <div className="pt-4 border-t border-slate-200 text-[11px] text-slate-500 space-y-1.5">
-            <span className="font-semibold text-slate-700 block">Verified Institutional Demo Accounts:</span>
-            {[
-              { lab: 'lab-chughtai', br: 'c-branch-jailrd', email: 'kamran.lead@chughtailab.pk', pw: 'LabOps@2026', label: 'Chughtai Lab (Jail Rd)' },
-              { lab: 'lab-skmch', br: 'sk-branch-johar', email: 'ops@skm.org.pk', pw: 'Skmch@2026', label: 'SKMCH (Johar Town)' },
-              { lab: 'lab-idc', br: 'idc-branch-shadman', email: 'ops@idc.net.pk', pw: 'IdcOps@2026', label: 'IDC (Shadman)' },
-            ].map((acc) => (
-              <button
-                key={acc.email}
-                type="button"
-                onClick={() => {
-                  setAuthTab('SIGN_IN');
-                  setSelectedLabId(acc.lab);
-                  setSelectedBranchId(acc.br);
-                  setLoginEmail(acc.email);
-                  setLoginPassword(acc.pw);
-                }}
-                className="w-full text-left p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 flex justify-between font-mono"
-              >
-                <span>{acc.label}</span>
-                <span className="text-[#0F5132] font-semibold">Fill</span>
-              </button>
-            ))}
+          <div className="pt-4 border-t border-slate-200 text-[11px] text-slate-500">
+            New branch pathologists or lab managers can switch to <span className="font-semibold text-[#0F5132]">Register Staff</span> above to provision their laboratory account.
           </div>
         </div>
       </div>
@@ -524,24 +553,70 @@ export const LabPortalPreview: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 overflow-x-auto">
-          {[
-            { id: 'QUEUE', label: `Appointments (${bookings.length})` },
-            { id: 'TARIFFS', label: 'Published Tariffs' },
-            { id: 'ANALYTICS', label: 'Metrics' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as typeof activeSubTab)}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-lg whitespace-nowrap min-h-[38px] ${
-                activeSubTab === tab.id ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowLabNotifs((prev) => !prev)}
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 min-h-[40px] whitespace-nowrap"
+          >
+            <Bell className="w-3.5 h-3.5 text-[#0F5132]" />
+            <span>Alerts ({unreadLabNotifs})</span>
+          </button>
+
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 overflow-x-auto">
+            {[
+              { id: 'QUEUE', label: `Appointments (${bookings.length})` },
+              { id: 'TARIFFS', label: 'Tariffs & Branches' },
+              { id: 'ANALYTICS', label: 'Settlements & Plan' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSubTab(tab.id as typeof activeSubTab)}
+                className={`px-3.5 py-2 text-xs font-semibold rounded-lg whitespace-nowrap min-h-[38px] ${
+                  activeSubTab === tab.id ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {showLabNotifs && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-2.5 text-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <span className="font-bold text-slate-900">Laboratory Alerts &amp; Compliance Feed ({labNotifications.length})</span>
+            <div className="flex items-center gap-3">
+              {unreadLabNotifs > 0 && (
+                <button type="button" onClick={handleMarkLabNotifsRead} className="text-[#0F5132] font-semibold hover:underline">
+                  Mark All Read
+                </button>
+              )}
+              <button type="button" onClick={() => setShowLabNotifs(false)} className="text-slate-500">
+                Close
+              </button>
+            </div>
+          </div>
+          {labNotifications.length === 0 ? (
+            <div className="text-slate-500 py-2">No laboratory alerts yet.</div>
+          ) : (
+            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+              {labNotifications.slice(0, 8).map((n) => (
+                <div key={n.id} className={`py-2 flex items-start justify-between gap-3 ${n.read ? 'opacity-70' : ''}`}>
+                  <div>
+                    <div className="font-semibold text-slate-900">{n.title}</div>
+                    <div className="text-slate-600">{n.message}</div>
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
+                    {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {operatorLab && operatorLab.verificationStatus !== 'VERIFIED' && (
         <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start gap-3 text-xs text-rose-900">
@@ -973,78 +1048,153 @@ export const LabPortalPreview: React.FC = () => {
         </div>
       )}
 
-      {/* TARIFFS MANAGEMENT (RUNTIME EDITABLE) */}
+      {/* TARIFFS & BRANCH MANAGEMENT (RUNTIME EDITABLE) */}
       {activeSubTab === 'TARIFFS' && (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-          <div className="p-5 border-b border-slate-200 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Settings className="w-4 h-4 text-[#0F5132]" />
-                <span>Live Published Tariffs — {operatorLab?.name}</span>
-              </h2>
-              <p className="text-xs text-slate-500">Updates persist to database and reflect immediately in Patient Marketplace.</p>
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-[#0F5132]" />
+                  <span>Live Published Tariffs — {operatorLab?.name}</span>
+                </h2>
+                <p className="text-xs text-slate-500">Updates persist to database and reflect immediately in Patient Marketplace.</p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                  <tr>
+                    <th className="py-3 px-4">Code</th>
+                    <th className="py-3 px-4">Test Name</th>
+                    <th className="py-3 px-4">Published Rate</th>
+                    <th className="py-3 px-4">Discounted</th>
+                    <th className="py-3 px-4">TAT (Hrs)</th>
+                    <th className="py-3 px-4">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {labPricings.map((pr) => {
+                    const test = tests.find((t) => t.id === pr.testId);
+                    const isEditing = editingPricingId === pr.id;
+                    return (
+                      <tr key={pr.id}>
+                        <td className="py-3 px-4 font-mono font-bold">{test?.code}</td>
+                        <td className="py-3 px-4 font-medium text-slate-900">{test?.name}</td>
+                        <td className="py-3 px-4 font-mono tabular-nums">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              value={editPriceVal}
+                              onChange={(e) => setEditPriceVal(e.target.value)}
+                              className="w-24 border border-slate-300 rounded px-2 py-1"
+                            />
+                          ) : (
+                            `PKR ${pr.pricePkr.toLocaleString()}`
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-mono tabular-nums text-[#0F5132]">
+                          {pr.discountedPricePkr ? `PKR ${pr.discountedPricePkr.toLocaleString()}` : '—'}
+                        </td>
+                        <td className="py-3 px-4 font-mono tabular-nums">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              value={editTatVal}
+                              onChange={(e) => setEditTatVal(e.target.value)}
+                              className="w-16 border border-slate-300 rounded px-2 py-1"
+                            />
+                          ) : (
+                            `${pr.statedTurnaroundHours}h`
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          {isEditing ? (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleSaveTariff(pr.id)}
+                                className="px-2.5 py-1 bg-[#0F5132] text-white rounded font-semibold"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingPricingId(null)}
+                                className="px-2 py-1 text-slate-500"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingPricingId(pr.id);
+                                setEditPriceVal(String(pr.pricePkr));
+                                setEditTatVal(String(pr.statedTurnaroundHours));
+                              }}
+                              className="text-[#0F5132] font-semibold hover:underline"
+                            >
+                              Edit Rate
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <tr>
-                  <th className="py-3 px-4">Code</th>
-                  <th className="py-3 px-4">Test Name</th>
-                  <th className="py-3 px-4">Published Rate</th>
-                  <th className="py-3 px-4">Discounted</th>
-                  <th className="py-3 px-4">TAT (Hrs)</th>
-                  <th className="py-3 px-4">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {labPricings.map((pr) => {
-                  const test = tests.find((t) => t.id === pr.testId);
-                  const isEditing = editingPricingId === pr.id;
+          {operatorLab && (
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+              <div className="p-5 border-b border-slate-200">
+                <h2 className="text-base font-bold text-slate-900">Lahore Branches &amp; Home Collection Fees</h2>
+                <p className="text-xs text-slate-500">Update branch operating hours and home sampling tariffs live.</p>
+              </div>
+              <div className="divide-y divide-slate-100 text-xs">
+                {operatorLab.branches.map((br) => {
+                  const isEd = editingBranchId === br.id;
                   return (
-                    <tr key={pr.id}>
-                      <td className="py-3 px-4 font-mono font-bold">{test?.code}</td>
-                      <td className="py-3 px-4 font-medium text-slate-900">{test?.name}</td>
-                      <td className="py-3 px-4 font-mono tabular-nums">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            value={editPriceVal}
-                            onChange={(e) => setEditPriceVal(e.target.value)}
-                            className="w-24 border border-slate-300 rounded px-2 py-1"
-                          />
-                        ) : (
-                          `PKR ${pr.pricePkr.toLocaleString()}`
-                        )}
-                      </td>
-                      <td className="py-3 px-4 font-mono tabular-nums text-[#0F5132]">
-                        {pr.discountedPricePkr ? `PKR ${pr.discountedPricePkr.toLocaleString()}` : '—'}
-                      </td>
-                      <td className="py-3 px-4 font-mono tabular-nums">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            value={editTatVal}
-                            onChange={(e) => setEditTatVal(e.target.value)}
-                            className="w-16 border border-slate-300 rounded px-2 py-1"
-                          />
-                        ) : (
-                          `${pr.statedTurnaroundHours}h`
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        {isEditing ? (
+                    <div key={br.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-slate-900">{br.name} · {br.area}</div>
+                        <div className="text-slate-500">{br.address}</div>
+                        <div className="font-mono text-[11px] text-slate-600">
+                          {isEd ? (
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                              <input
+                                type="text"
+                                value={editBranchHours}
+                                onChange={(e) => setEditBranchHours(e.target.value)}
+                                className="border border-slate-300 rounded px-2 py-1 w-44"
+                                placeholder="Operating hours"
+                              />
+                              <input
+                                type="number"
+                                value={editBranchFee}
+                                onChange={(e) => setEditBranchFee(e.target.value)}
+                                className="border border-slate-300 rounded px-2 py-1 w-28"
+                                placeholder="Fee PKR"
+                              />
+                            </div>
+                          ) : (
+                            `Hours: ${br.operatingHours} · Home Fee: ${br.homeCollectionFeePkr === 0 ? 'FREE (PKR 0)' : `PKR ${br.homeCollectionFeePkr}`}`
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        {isEd ? (
                           <div className="flex gap-2">
                             <button
-                              onClick={() => handleSaveTariff(pr.id)}
-                              className="px-2.5 py-1 bg-[#0F5132] text-white rounded font-semibold"
+                              onClick={() => handleSaveBranchConfig(br.id)}
+                              className="px-3 py-1.5 bg-[#0F5132] text-white rounded-lg font-semibold"
                             >
                               Save
                             </button>
                             <button
-                              onClick={() => setEditingPricingId(null)}
-                              className="px-2 py-1 text-slate-500"
+                              onClick={() => setEditingBranchId(null)}
+                              className="px-2 py-1.5 text-slate-500"
                             >
                               Cancel
                             </button>
@@ -1052,41 +1202,99 @@ export const LabPortalPreview: React.FC = () => {
                         ) : (
                           <button
                             onClick={() => {
-                              setEditingPricingId(pr.id);
-                              setEditPriceVal(String(pr.pricePkr));
-                              setEditTatVal(String(pr.statedTurnaroundHours));
+                              setEditingBranchId(br.id);
+                              setEditBranchHours(br.operatingHours);
+                              setEditBranchFee(String(br.homeCollectionFeePkr));
                             }}
                             className="text-[#0F5132] font-semibold hover:underline"
                           >
-                            Edit Rate
+                            Edit Branch
                           </button>
                         )}
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ANALYTICS */}
+      {/* SETTLEMENTS & SAAS PLAN */}
       {activeSubTab === 'ANALYTICS' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6">
-            <span className="text-xs font-semibold text-slate-500 uppercase">Total Orders</span>
-            <div className="text-3xl font-bold font-mono text-slate-900 mt-2 tabular-nums">{bookings.length}</div>
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-6">
-            <span className="text-xs font-semibold text-slate-500 uppercase">Signed PDFs Published</span>
-            <div className="text-3xl font-bold font-mono text-[#0F5132] mt-2 tabular-nums">{completedCount}</div>
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-6">
-            <span className="text-xs font-semibold text-slate-500 uppercase">Gross Lab Volume</span>
-            <div className="text-3xl font-bold font-mono text-slate-900 mt-2 tabular-nums">
-              PKR {grossRevenuePkr.toLocaleString()}
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <span className="text-xs font-semibold text-slate-500 uppercase">Total Orders</span>
+              <div className="text-2xl font-bold font-mono text-slate-900 mt-1 tabular-nums">{bookings.length}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">{completedCount} PDFs Published</div>
             </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <span className="text-xs font-semibold text-slate-500 uppercase">Gross Lab Volume</span>
+              <div className="text-2xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
+                PKR {grossRevenuePkr.toLocaleString()}
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <span className="text-xs font-semibold text-slate-500 uppercase">Unsettled Payout</span>
+              <div className="text-2xl font-bold font-mono text-[#0F5132] mt-1 tabular-nums">
+                PKR {(settlementSummary?.unsettledNetPayablePkr ?? 0).toLocaleString()}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                {settlementSummary?.unsettledBookingsCount ?? 0} bookings after 8% fee
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <span className="text-xs font-semibold text-slate-500 uppercase">SaaS Plan Tier</span>
+              <div className="text-xl font-bold font-mono text-slate-900 mt-1">
+                {settlementSummary?.subscriptionTier || operatorLab?.subscriptionTier || 'GROWTH'}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5 font-mono tabular-nums">
+                PKR {(settlementSummary?.monthlySaasFeePkr ?? operatorLab?.monthlySaasFeePkr ?? 18500).toLocaleString()}/month
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-800 uppercase tracking-wider">
+              <span className="flex items-center gap-1.5">
+                <Wallet className="w-4 h-4 text-[#0F5132]" />
+                <span>IBFT Disbursement &amp; Settlement Ledger ({settlementSummary?.settlementHistory.length || 0})</span>
+              </span>
+            </div>
+            {!settlementSummary || settlementSummary.settlementHistory.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-500">
+                No settled IBFT payouts recorded yet. Disbursements settled by Platform Admin appear here automatically.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                    <tr>
+                      <th className="py-3 px-4">Reference</th>
+                      <th className="py-3 px-4">Bookings</th>
+                      <th className="py-3 px-4">Gross PKR</th>
+                      <th className="py-3 px-4">Commission</th>
+                      <th className="py-3 px-4">Net Disbursed</th>
+                      <th className="py-3 px-4">Settled At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                    {settlementSummary.settlementHistory.map((st) => (
+                      <tr key={st.id}>
+                        <td className="py-3 px-4 font-bold text-slate-900">{st.referenceCode}</td>
+                        <td className="py-3 px-4 tabular-nums">{st.bookingCount}</td>
+                        <td className="py-3 px-4 tabular-nums">PKR {st.grossPkr.toLocaleString()}</td>
+                        <td className="py-3 px-4 tabular-nums">PKR {st.commissionPkr.toLocaleString()}</td>
+                        <td className="py-3 px-4 tabular-nums font-bold text-[#0F5132]">PKR {st.netPayablePkr.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-slate-500">{new Date(st.settledAt).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

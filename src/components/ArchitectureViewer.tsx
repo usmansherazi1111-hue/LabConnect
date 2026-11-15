@@ -117,7 +117,7 @@ export const ArchitectureViewer: React.FC = () => {
 │                      │                      │                      │                        │
 │         ┌────────────▼────────┐    ┌────────▼────────────┐   ┌─────▼──────────────────┐     │
 │         │ Marketplace Service │    │ Booking & Logistics │   │ LabConnect AI Layer    │     │
-│         │ - Lahore Directory  │    │ - Concurrency Lock  │   │ - Gemini 3.8 Flash     │     │
+│         │ - Lahore Directory  │    │ - Concurrency Lock  │   │ - Gemini 4 Hydrogen    │     │
 │         │ - Verified Tariffs  │    │ - Phlebotomist Route│   │ - Urdu Report Explainer│     │
 │         │ - Synonym Engine    │    │ - Report Matching   │   │ - Clinical Guardrails  │     │
 │         └────────────┬────────┘    └────────┬────────────┘   └─────┬──────────────────┘     │
@@ -164,7 +164,7 @@ export const ArchitectureViewer: React.FC = () => {
               <h3 className="font-semibold text-slate-900 text-sm mb-1">Server-Side GenAI Security</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
                 All LabConnect Intelligence calls invoke <code className="font-mono text-emerald-700">@google/genai</code> server-side 
-                with <code className="font-mono text-emerald-700">gemini-3.8-flash</code>. API keys are never exposed to the client bundle.
+                with <code className="font-mono text-emerald-700">gemini-4-hydrogen</code>. API keys are never exposed to the client bundle.
               </p>
             </div>
           </div>

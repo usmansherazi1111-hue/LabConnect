@@ -76,6 +76,7 @@ interface AuthContextType {
     branchId: string;
   }) => Promise<{ success: boolean; error?: string }>;
   loginAdmin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  setupAdmin: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   addFamilyMember: (data: {
     name: string;
     relationship: FamilyMember['relationship'];
@@ -239,6 +240,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const setupAdmin = async (name: string, email: string, password: string) => {
+    try {
+      const res = await apiClient.setupFirstAdmin(name, email, password);
+      if (res.success && res.user && res.sessionToken) {
+        setStoredToken(res.sessionToken, 'admin');
+        setAdminUser(res.user);
+        return { success: true };
+      }
+      return { success: false, error: res.error || 'Admin setup failed' };
+    } catch {
+      return { success: false, error: 'Network error initializing Admin Console' };
+    }
+  };
+
   const addFamilyMember = async (data: {
     name: string;
     relationship: FamilyMember['relationship'];
@@ -304,6 +319,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         loginPhlebotomist,
         registerPhlebotomist,
         loginAdmin,
+        setupAdmin,
         addFamilyMember,
         removeFamilyMember,
         logoutScope,

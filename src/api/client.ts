@@ -120,6 +120,7 @@ export const apiClient = {
 
   async createBooking(bookingData: {
     patientName: string;
+    familyMemberId?: string;
     patientPhone: string;
     patientEmail: string;
     patientArea: string;
@@ -275,11 +276,50 @@ export const apiClient = {
     testValue: string;
     referenceRange: string;
     language: 'EN' | 'UR';
+    parameters?: {
+      parameter: string;
+      observedValue: string;
+      unit: string;
+      referenceRange: string;
+      flag: string;
+    }[];
   }) {
     const res = await fetch(apiUrl('/api/ai/explain'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getNotifications(scope: AuthScope) {
+    const res = await fetch(apiUrl('/api/notifications'), {
+      headers: authHeaders({}, scope),
+    });
+    return res.json();
+  },
+
+  async markNotificationsRead(scope: AuthScope, notificationId?: string) {
+    const res = await fetch(apiUrl('/api/notifications/read'), {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }, scope),
+      body: JSON.stringify({ notificationId }),
+    });
+    return res.json();
+  },
+
+  async updateLabBranch(branchId: string, updates: { operatingHours?: string; homeCollectionFeePkr?: number }) {
+    const res = await fetch(apiUrl(`/api/lab/branches/${encodeURIComponent(branchId)}`), {
+      method: 'PATCH',
+      headers: authHeaders({ 'Content-Type': 'application/json' }, 'lab'),
+      body: JSON.stringify(updates),
+    });
+    return res.json();
+  },
+
+  async getLabSettlements() {
+    const res = await fetch(apiUrl('/api/lab/settlements'), {
+      headers: authHeaders({}, 'lab'),
     });
     return res.json();
   },
@@ -389,6 +429,20 @@ export const apiClient = {
   },
 
   // PHC Admin Auth & Console
+  async getAdminStatus() {
+    const res = await fetch(apiUrl('/api/auth/admin/status'));
+    return res.json();
+  },
+
+  async setupFirstAdmin(name: string, email: string, password: string) {
+    const res = await fetch(apiUrl('/api/auth/admin/setup'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+    return res.json();
+  },
+
   async loginAdmin(email: string, password: string) {
     const res = await fetch(apiUrl('/api/auth/admin/login'), {
       method: 'POST',
@@ -411,6 +465,29 @@ export const apiClient = {
       headers: authHeaders({}, 'admin'),
     });
     return res.json();
+  },
+
+  async updateLabSubscription(labId: string, subscriptionTier: 'STARTER' | 'GROWTH' | 'ENTERPRISE') {
+    const res = await fetch(apiUrl(`/api/admin/labs/${encodeURIComponent(labId)}/subscription`), {
+      method: 'PATCH',
+      headers: authHeaders({ 'Content-Type': 'application/json' }, 'admin'),
+      body: JSON.stringify({ subscriptionTier }),
+    });
+    return res.json();
+  },
+
+  async settleLabPayout(labId: string, deductSaasFee = false) {
+    const res = await fetch(apiUrl('/api/admin/settlements/settle'), {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }, 'admin'),
+      body: JSON.stringify({ labId, deductSaasFee }),
+    });
+    return res.json();
+  },
+
+  getAuditCsvUrl(): string {
+    const token = getStoredToken('admin');
+    return apiUrl(`/api/admin/audit/export${token ? `?token=${encodeURIComponent(token)}` : ''}`);
   },
 
   async getCurrentUser(scope: AuthScope) {

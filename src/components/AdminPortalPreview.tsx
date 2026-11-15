@@ -4,28 +4,41 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { LahoreLaboratory, EmailDispatchLog, AuditLogEntry } from '../types';
+import {
+  LahoreLaboratory,
+  EmailDispatchLog,
+  AuditLogEntry,
+  SettlementPayoutRecord,
+  LabSubscriptionTier,
+} from '../types';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { ShieldCheck, Lock, AlertCircle, RotateCw, Mail } from 'lucide-react';
+import { ShieldCheck, Lock, AlertCircle, RotateCw, Mail, Download, CheckCircle2 } from 'lucide-react';
 
 interface SettlementRow {
   labId: string;
   labName: string;
   phcLicence: string;
   verificationStatus: string;
+  subscriptionTier: LabSubscriptionTier;
+  monthlySaasFeePkr: number;
   bookingsCount: number;
   completedCount: number;
   grossPkr: number;
   commissionPkr: number;
   netPayablePkr: number;
+  unsettledCount: number;
+  unsettledNetPkr: number;
 }
 
 export const AdminPortalPreview: React.FC = () => {
-  const { adminUser, loginAdmin } = useAuth();
+  const { adminUser, loginAdmin, setupAdmin } = useAuth();
 
-  const [email, setEmail] = useState<string>('admin@labconnect.pk');
-  const [password, setPassword] = useState<string>('PhcAdmin@2026');
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [setupName, setSetupName] = useState<string>('');
+  const [setupRequired, setSetupRequired] = useState<boolean>(false);
+  const [authMode, setAuthMode] = useState<'SIGN_IN' | 'SETUP'>('SIGN_IN');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
 
@@ -34,20 +47,25 @@ export const AdminPortalPreview: React.FC = () => {
   );
   const [laboratories, setLaboratories] = useState<LahoreLaboratory[]>([]);
   const [settlements, setSettlements] = useState<SettlementRow[]>([]);
+  const [settlementHistory, setSettlementHistory] = useState<SettlementPayoutRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>([]);
+  const [securityStatus, setSecurityStatus] = useState<Record<string, string>>({});
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<{
     totalBookings: number;
     totalReports: number;
     totalEmailsSent: number;
     grossVolumePkr: number;
     totalCommissionPkr: number;
+    totalSaasMrrPkr?: number;
   }>({
     totalBookings: 0,
     totalReports: 0,
     totalEmailsSent: 0,
     grossVolumePkr: 0,
     totalCommissionPkr: 0,
+    totalSaasMrrPkr: 0,
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
@@ -59,8 +77,10 @@ export const AdminPortalPreview: React.FC = () => {
       if (res.success && res.data) {
         setLaboratories(res.data.laboratories || []);
         setSettlements(res.data.settlements || []);
+        setSettlementHistory(res.data.settlementHistory || []);
         setAuditLogs(res.data.auditLogs || []);
         setEmailLogs(res.data.emailLogs || []);
+        if (res.data.securityStatus) setSecurityStatus(res.data.securityStatus);
         if (res.data.metrics) setMetrics(res.data.metrics);
       }
     } catch (err) {
@@ -73,6 +93,19 @@ export const AdminPortalPreview: React.FC = () => {
   useEffect(() => {
     if (adminUser) {
       fetchOverview();
+    } else {
+      apiClient
+        .getAdminStatus()
+        .then((res) => {
+          if (res.success && res.setupRequired) {
+            setSetupRequired(true);
+            setAuthMode('SETUP');
+          } else {
+            setSetupRequired(false);
+            setAuthMode('SIGN_IN');
+          }
+        })
+        .catch(() => {});
     }
   }, [adminUser, fetchOverview]);
 
@@ -80,7 +113,10 @@ export const AdminPortalPreview: React.FC = () => {
     e.preventDefault();
     setLoginError(null);
     setIsLoggingIn(true);
-    const res = await loginAdmin(email.trim(), password);
+    const res =
+      authMode === 'SETUP'
+        ? await setupAdmin(setupName.trim(), email.trim(), password)
+        : await loginAdmin(email.trim(), password);
     setIsLoggingIn(false);
     if (!res.success) {
       setLoginError(res.error || 'Access denied');
@@ -94,6 +130,25 @@ export const AdminPortalPreview: React.FC = () => {
     }
   };
 
+  const handleUpdateTier = async (labId: string, tier: LabSubscriptionTier) => {
+    const res = await apiClient.updateLabSubscription(labId, tier);
+    if (res.success) {
+      setActionMsg(`Updated SaaS subscription tier to ${tier}.`);
+      fetchOverview();
+    }
+  };
+
+  const handleSettlePayout = async (labId: string) => {
+    setActionMsg(null);
+    const res = await apiClient.settleLabPayout(labId, false);
+    if (res.success) {
+      setActionMsg(res.message || 'Settlement recorded');
+      fetchOverview();
+    } else {
+      setActionMsg(res.error || 'Unable to settle payout');
+    }
+  };
+
   if (!adminUser) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center p-4">
@@ -102,13 +157,56 @@ export const AdminPortalPreview: React.FC = () => {
             <div className="w-12 h-12 bg-emerald-100 text-[#0F5132] rounded-full flex items-center justify-center mx-auto">
               <ShieldCheck className="w-6 h-6" />
             </div>
-            <h1 className="text-xl font-bold text-slate-900">PHC Regulatory & Admin Sign In</h1>
+            <h1 className="text-xl font-bold text-slate-900">PHC Regulatory &amp; Admin Console</h1>
             <p className="text-xs text-slate-500">
               Restricted to SUPER_ADMIN and Punjab Healthcare Commission Inspectors
             </p>
           </div>
 
+          {setupRequired && (
+            <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('SIGN_IN');
+                  setLoginError(null);
+                }}
+                className={`py-2 rounded-lg min-h-[38px] ${
+                  authMode === 'SIGN_IN' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('SETUP');
+                  setLoginError(null);
+                }}
+                className={`py-2 rounded-lg min-h-[38px] ${
+                  authMode === 'SETUP' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                }`}
+              >
+                Initial Setup
+              </button>
+            </div>
+          )}
+
           <form onSubmit={handleAdminSignIn} className="space-y-4 text-xs">
+            {authMode === 'SETUP' && (
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Administrator Full Name:</label>
+                <input
+                  type="text"
+                  required
+                  value={setupName}
+                  onChange={(e) => setSetupName(e.target.value)}
+                  placeholder="Dr. Tariq Mahmood"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-800"
+                />
+              </div>
+            )}
+
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Regulatory Email:</label>
               <input
@@ -116,17 +214,21 @@ export const AdminPortalPreview: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="regulatory@institution.pk"
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-800"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Admin Password:</label>
+              <label className="block font-semibold text-slate-700 mb-1">
+                {authMode === 'SETUP' ? 'Create Strong Password (min 8 chars):' : 'Admin Password:'}
+              </label>
               <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-mono text-slate-800"
               />
             </div>
@@ -144,34 +246,18 @@ export const AdminPortalPreview: React.FC = () => {
               className="w-full py-2.5 bg-[#0F5132] hover:bg-emerald-800 text-white rounded-xl font-semibold min-h-[44px] flex items-center justify-center gap-1.5"
             >
               <Lock className="w-3.5 h-3.5" />
-              <span>{isLoggingIn ? 'Verifying...' : 'Sign In to Admin Console'}</span>
+              <span>
+                {isLoggingIn
+                  ? 'Verifying...'
+                  : authMode === 'SETUP'
+                    ? 'Initialize Super Admin Account'
+                    : 'Sign In to Admin Console'}
+              </span>
             </button>
           </form>
 
-          <div className="pt-4 border-t border-slate-200 text-[11px] text-slate-500 space-y-1.5">
-            <span className="font-semibold text-slate-700 block">Authorized Regulatory Accounts:</span>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('admin@labconnect.pk');
-                setPassword('PhcAdmin@2026');
-              }}
-              className="w-full text-left p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 flex justify-between font-mono"
-            >
-              <span>Platform Director (admin@labconnect.pk)</span>
-              <span className="text-[#0F5132] font-semibold">Fill</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('inspector@phc.punjab.gov.pk');
-                setPassword('PhcInspect@2026');
-              }}
-              className="w-full text-left p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 flex justify-between font-mono"
-            >
-              <span>PHC Inspector (inspector@phc.punjab.gov.pk)</span>
-              <span className="text-[#0F5132] font-semibold">Fill</span>
-            </button>
+          <div className="pt-4 border-t border-slate-200 text-[11px] text-slate-500">
+            Credentials are verified via salted scrypt password hashes and signed HMAC-SHA256 sessions. No default passwords are stored in client builds.
           </div>
         </div>
       </div>
@@ -187,7 +273,7 @@ export const AdminPortalPreview: React.FC = () => {
             {adminUser.role} · Punjab Healthcare Commission Division
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-            Governance, Licencing & Live Audit Ledger
+            Governance, Licencing &amp; Live Audit Ledger
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             Live platform totals computed dynamically from runtime bookings, reports, and email logs.
@@ -223,6 +309,13 @@ export const AdminPortalPreview: React.FC = () => {
         </div>
       </div>
 
+      {actionMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{actionMsg}</span>
+        </div>
+      )}
+
       {activeTab === 'PHC_VERIFICATION' && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -242,13 +335,11 @@ export const AdminPortalPreview: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-base font-bold text-slate-900">{lab.name}</span>
                       <span
-                        className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
-                          isVerified
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                            : 'bg-rose-100 text-rose-800 border-rose-200'
+                        className={`text-[10px] font-mono font-bold ${
+                          isVerified ? 'text-emerald-800' : 'text-rose-800'
                         }`}
                       >
-                        {isVerified ? 'PHC VERIFIED' : 'PHC LICENCE REVOKED — BOOKINGS BLOCKED'}
+                        · {isVerified ? 'PHC VERIFIED' : 'PHC LICENCE REVOKED — BOOKINGS BLOCKED'}
                       </span>
                     </div>
                     <div className="text-slate-600">{lab.tagline}</div>
@@ -256,16 +347,30 @@ export const AdminPortalPreview: React.FC = () => {
                       PHC: {lab.phcLicence} · Branches: {lab.branches.length} · Updated By: {lab.verifiedBy}
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleToggleVerification(lab.id)}
-                    className={`px-4 py-2 rounded-xl text-xs font-semibold min-h-[40px] shrink-0 ${
-                      isVerified
-                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
-                        : 'bg-[#0F5132] hover:bg-emerald-800 text-white border border-emerald-700'
-                    }`}
-                  >
-                    {isVerified ? 'Revoke PHC Licence' : 'Recognize & Restore PHC Licence'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {adminUser.role === 'SUPER_ADMIN' && (
+                      <select
+                        value={lab.subscriptionTier || 'GROWTH'}
+                        onChange={(e) => handleUpdateTier(lab.id, e.target.value as LabSubscriptionTier)}
+                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 min-h-[40px]"
+                        title="Laboratory SaaS Plan"
+                      >
+                        <option value="STARTER">Starter (PKR 0/mo)</option>
+                        <option value="GROWTH">Growth (PKR 18,500/mo)</option>
+                        <option value="ENTERPRISE">Enterprise (PKR 45,000/mo)</option>
+                      </select>
+                    )}
+                    <button
+                      onClick={() => handleToggleVerification(lab.id)}
+                      className={`px-4 py-2 rounded-xl text-xs font-semibold min-h-[40px] shrink-0 ${
+                        isVerified
+                          ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
+                          : 'bg-[#0F5132] hover:bg-emerald-800 text-white border border-emerald-700'
+                      }`}
+                    >
+                      {isVerified ? 'Revoke PHC Licence' : 'Recognize & Restore PHC Licence'}
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -275,24 +380,31 @@ export const AdminPortalPreview: React.FC = () => {
 
       {activeTab === 'COMMISSION_LEDGER' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
             <div className="bg-white border border-slate-200 rounded-2xl p-5">
-              <span className="text-xs font-semibold text-slate-500 uppercase">Live Gross Booking Volume</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase">Live Gross Volume</span>
               <div className="text-2xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
                 PKR {metrics.grossVolumePkr.toLocaleString()}
               </div>
               <span className="text-[11px] text-slate-500">{metrics.totalBookings} total active bookings</span>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-5">
-              <span className="text-xs font-semibold text-slate-500 uppercase">Platform Commission (8%)</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase">Commission (8%)</span>
               <div className="text-2xl font-bold font-mono text-[#0F5132] mt-1 tabular-nums">
                 PKR {metrics.totalCommissionPkr.toLocaleString()}
               </div>
               <span className="text-[11px] text-slate-500">Calculated directly from DB</span>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-5">
-              <span className="text-xs font-semibold text-slate-500 uppercase">Reports Published & Emailed</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase">Monthly SaaS MRR</span>
               <div className="text-2xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
+                PKR {(metrics.totalSaasMrrPkr || 0).toLocaleString()}
+              </div>
+              <span className="text-[11px] text-slate-500">{laboratories.length} subscribed lab networks</span>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <span className="text-xs font-semibold text-slate-500 uppercase">Reports &amp; Emails</span>
+              <div className="text-xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
                 {metrics.totalReports} PDFs · {metrics.totalEmailsSent} Emails
               </div>
             </div>
@@ -303,27 +415,75 @@ export const AdminPortalPreview: React.FC = () => {
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
                 <tr>
                   <th className="py-3 px-4">Laboratory</th>
-                  <th className="py-3 px-4">Bookings</th>
-                  <th className="py-3 px-4">Completed</th>
+                  <th className="py-3 px-4">SaaS Plan</th>
+                  <th className="py-3 px-4">Orders</th>
                   <th className="py-3 px-4">Gross PKR</th>
                   <th className="py-3 px-4">Fee (8%)</th>
-                  <th className="py-3 px-4">Net Payable</th>
+                  <th className="py-3 px-4">Unsettled Payable</th>
+                  <th className="py-3 px-4">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
                 {settlements.map((row) => (
                   <tr key={row.labId}>
                     <td className="py-3 px-4 font-sans font-semibold text-slate-900">{row.labName}</td>
+                    <td className="py-3 px-4">{row.subscriptionTier}</td>
                     <td className="py-3 px-4 tabular-nums">{row.bookingsCount}</td>
-                    <td className="py-3 px-4 tabular-nums">{row.completedCount}</td>
                     <td className="py-3 px-4 tabular-nums">PKR {row.grossPkr.toLocaleString()}</td>
                     <td className="py-3 px-4 tabular-nums text-emerald-800">PKR {row.commissionPkr.toLocaleString()}</td>
-                    <td className="py-3 px-4 tabular-nums font-bold">PKR {row.netPayablePkr.toLocaleString()}</td>
+                    <td className="py-3 px-4 tabular-nums font-bold">
+                      {row.unsettledNetPkr > 0 ? `PKR ${row.unsettledNetPkr.toLocaleString()} (${row.unsettledCount})` : 'Settled'}
+                    </td>
+                    <td className="py-3 px-4 font-sans">
+                      {adminUser.role === 'SUPER_ADMIN' && row.unsettledNetPkr > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => handleSettlePayout(row.labId)}
+                          className="px-3 py-1.5 bg-[#0F5132] hover:bg-emerald-800 text-white rounded-lg font-semibold text-[11px] whitespace-nowrap"
+                        >
+                          Settle Payout
+                        </button>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {settlementHistory.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-xs">
+              <div className="p-4 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Completed IBFT Settlement Payouts ({settlementHistory.length})
+              </div>
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                  <tr>
+                    <th className="py-2.5 px-4">Reference</th>
+                    <th className="py-2.5 px-4">Laboratory</th>
+                    <th className="py-2.5 px-4">Orders</th>
+                    <th className="py-2.5 px-4">Net Disbursed</th>
+                    <th className="py-2.5 px-4">Authorized By</th>
+                    <th className="py-2.5 px-4">Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                  {settlementHistory.map((item) => (
+                    <tr key={item.id}>
+                      <td className="py-2.5 px-4 font-bold text-slate-900">{item.referenceCode}</td>
+                      <td className="py-2.5 px-4 font-sans font-medium">{item.labName}</td>
+                      <td className="py-2.5 px-4 tabular-nums">{item.bookingCount}</td>
+                      <td className="py-2.5 px-4 tabular-nums text-[#0F5132] font-bold">PKR {item.netPayablePkr.toLocaleString()}</td>
+                      <td className="py-2.5 px-4 font-sans text-slate-600">{item.settledBy}</td>
+                      <td className="py-2.5 px-4 text-slate-400">{new Date(item.settledAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -339,14 +499,12 @@ export const AdminPortalPreview: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <Mail className="w-3.5 h-3.5 text-[#0F5132]" />
                     <span className="font-bold text-slate-900">{log.recipientEmail}</span>
-                    <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200">
-                      {log.status}
-                    </span>
+                    <span className="font-mono text-[10px] text-emerald-800 font-semibold">· {log.status}</span>
                   </div>
                   <div className="text-slate-700 font-medium">{log.subject}</div>
                   <div className="text-[11px] font-mono text-slate-500">Attachment: {log.attachmentFileName}</div>
                 </div>
-                <span className="font-mono text-[11px] text-slate-400 shrink-0">
+                <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
                   {new Date(log.sentAt).toLocaleString()}
                 </span>
               </div>
@@ -356,31 +514,64 @@ export const AdminPortalPreview: React.FC = () => {
       )}
 
       {activeTab === 'AUDIT_LOGS' && (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-          <div className="p-4 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700 uppercase tracking-wider">
-            Append-Only Security & Clinical Audit Trail ({auditLogs.length})
-          </div>
-          <div className="divide-y divide-slate-100 text-xs">
-            {auditLogs.map((log) => (
-              <div key={log.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] font-bold bg-emerald-50 text-emerald-900 border border-emerald-200 px-2 py-0.5 rounded">
-                      {log.action}
-                    </span>
-                    <span className="font-semibold text-slate-900">{log.actor}</span>
-                    <span className="text-[10px] font-mono text-slate-500">({log.role})</span>
-                  </div>
-                  <div className="text-[11px] text-slate-600 mt-1">Target: {log.target}</div>
-                </div>
-                <span className="font-mono text-[11px] text-slate-400 shrink-0">
-                  {new Date(log.timestamp).toLocaleString()}
-                </span>
+        <div className="space-y-4">
+          {Object.keys(securityStatus).length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">Token Signing</span>
+                <span className="font-mono font-semibold text-slate-900">{securityStatus.authAlgorithm}</span>
               </div>
-            ))}
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">Password KDF</span>
+                <span className="font-mono font-semibold text-slate-900">{securityStatus.passwordHashing}</span>
+              </div>
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">API Rate Limiter</span>
+                <span className="font-mono font-semibold text-[#0F5132]">{securityStatus.rateLimiter}</span>
+              </div>
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">Report Security</span>
+                <span className="font-mono font-semibold text-slate-900">{securityStatus.pdfIntegrity}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Append-Only Security &amp; Clinical Audit Trail ({auditLogs.length})
+              </span>
+              <a
+                href={apiClient.getAuditCsvUrl()}
+                download="labconnect_audit_logs.csv"
+                className="px-3 py-1.5 bg-white border border-slate-200 hover:border-[#0F5132] text-slate-800 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5 text-[#0F5132]" />
+                <span>Download CSV</span>
+              </a>
+            </div>
+            <div className="divide-y divide-slate-100 text-xs">
+              {auditLogs.map((log) => (
+                <div key={log.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] font-bold text-emerald-900">{log.action}</span>
+                      <span className="text-slate-300" aria-hidden="true">·</span>
+                      <span className="font-semibold text-slate-900">{log.actor}</span>
+                      <span className="text-[10px] font-mono text-slate-500">({log.role})</span>
+                    </div>
+                    <div className="text-[11px] text-slate-600 mt-1">Target: {log.target}</div>
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
+                    {new Date(log.timestamp).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 };
+
