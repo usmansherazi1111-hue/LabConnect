@@ -10,10 +10,25 @@ import {
   AuditLogEntry,
   SettlementPayoutRecord,
   LabSubscriptionTier,
+  LabReviewRecord,
+  UserRole,
 } from '../types';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { ShieldCheck, Lock, AlertCircle, RotateCw, Mail, Download, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, Lock, AlertCircle, RotateCw, Mail, Download, CheckCircle2, Trash2 } from 'lucide-react';
+
+interface AdminAccountSummary {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  role: UserRole;
+  staffCode?: string;
+  labId?: string;
+  branchId?: string;
+  area: string;
+  createdAt: string;
+}
 
 interface SettlementRow {
   labId: string;
@@ -42,7 +57,7 @@ export const AdminPortalPreview: React.FC = () => {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
 
-  const [activeTab, setActiveTab] = useState<'PHC_VERIFICATION' | 'COMMISSION_LEDGER' | 'EMAIL_DISPATCH' | 'AUDIT_LOGS'>(
+  const [activeTab, setActiveTab] = useState<'PHC_VERIFICATION' | 'COMMISSION_LEDGER' | 'EMAIL_DISPATCH' | 'ACCOUNTS_REVIEWS' | 'AUDIT_LOGS'>(
     'PHC_VERIFICATION'
   );
   const [laboratories, setLaboratories] = useState<LahoreLaboratory[]>([]);
@@ -50,6 +65,10 @@ export const AdminPortalPreview: React.FC = () => {
   const [settlementHistory, setSettlementHistory] = useState<SettlementPayoutRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>([]);
+  const [adminUsersList, setAdminUsersList] = useState<AdminAccountSummary[]>([]);
+  const [reviewsList, setReviewsList] = useState<LabReviewRecord[]>([]);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [securityStatus, setSecurityStatus] = useState<Record<string, string>>({});
   const [lahoreCoverage, setLahoreCoverage] = useState<{
     verifiedLabsCount: number;
@@ -82,7 +101,11 @@ export const AdminPortalPreview: React.FC = () => {
     if (!adminUser) return;
     setIsLoading(true);
     try {
-      const res = await apiClient.getAdminOverview();
+      const [res, usersRes, revRes] = await Promise.all([
+        apiClient.getAdminOverview(),
+        apiClient.getAdminUsers(),
+        apiClient.getReviews(),
+      ]);
       if (res.success && res.data) {
         setLaboratories(res.data.laboratories || []);
         setSettlements(res.data.settlements || []);
@@ -92,6 +115,12 @@ export const AdminPortalPreview: React.FC = () => {
         if (res.data.securityStatus) setSecurityStatus(res.data.securityStatus);
         if (res.data.lahoreCoverage) setLahoreCoverage(res.data.lahoreCoverage);
         if (res.data.metrics) setMetrics(res.data.metrics);
+      }
+      if (usersRes.success && Array.isArray(usersRes.data)) {
+        setAdminUsersList(usersRes.data);
+      }
+      if (revRes.success && Array.isArray(revRes.data)) {
+        setReviewsList(revRes.data);
       }
     } catch (err) {
       console.error('Failed to fetch admin overview:', err);
@@ -150,12 +179,52 @@ export const AdminPortalPreview: React.FC = () => {
 
   const handleSettlePayout = async (labId: string) => {
     setActionMsg(null);
+    setActionError(null);
     const res = await apiClient.settleLabPayout(labId, false);
     if (res.success) {
       setActionMsg(res.message || 'Settlement recorded');
       fetchOverview();
     } else {
-      setActionMsg(res.error || 'Unable to settle payout');
+      setActionError(res.error || 'Unable to settle payout');
+    }
+  };
+
+  const handleDeleteLab = async (labId: string) => {
+    setActionMsg(null);
+    setActionError(null);
+    const res = await apiClient.deleteLab(labId);
+    setPendingDeleteId(null);
+    if (res.success) {
+      setActionMsg(res.message || 'Laboratory removed');
+      fetchOverview();
+    } else {
+      setActionError(res.error || 'Unable to remove laboratory');
+    }
+  };
+
+  const handleDeleteAccount = async (userId: string) => {
+    setActionMsg(null);
+    setActionError(null);
+    const res = await apiClient.deleteAdminUser(userId);
+    setPendingDeleteId(null);
+    if (res.success) {
+      setActionMsg(res.message || 'Account deleted');
+      fetchOverview();
+    } else {
+      setActionError(res.error || 'Unable to delete account');
+    }
+  };
+
+  const handleDeleteReview = async (reviewId: string) => {
+    setActionMsg(null);
+    setActionError(null);
+    const res = await apiClient.deleteReview(reviewId, 'admin');
+    setPendingDeleteId(null);
+    if (res.success) {
+      setActionMsg('Moderated patient review removed');
+      fetchOverview();
+    } else {
+      setActionError(res.error || 'Unable to remove review');
     }
   };
 
@@ -296,6 +365,7 @@ export const AdminPortalPreview: React.FC = () => {
               { id: 'PHC_VERIFICATION', label: 'PHC Licences' },
               { id: 'COMMISSION_LEDGER', label: 'Settlements' },
               { id: 'EMAIL_DISPATCH', label: `Emails (${emailLogs.length})` },
+              { id: 'ACCOUNTS_REVIEWS', label: `Accounts (${adminUsersList.length})` },
               { id: 'AUDIT_LOGS', label: `Audit (${auditLogs.length})` },
             ].map((t) => (
               <button
@@ -320,9 +390,21 @@ export const AdminPortalPreview: React.FC = () => {
       </div>
 
       {actionMsg && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>{actionMsg}</span>
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{actionMsg}</span>
+          </span>
+          <button type="button" onClick={() => setActionMsg(null)} className="text-emerald-800 font-semibold">✕</button>
+        </div>
+      )}
+      {actionError && (
+        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{actionError}</span>
+          </span>
+          <button type="button" onClick={() => setActionError(null)} className="text-rose-800 font-semibold">✕</button>
         </div>
       )}
 
@@ -380,6 +462,36 @@ export const AdminPortalPreview: React.FC = () => {
                     >
                       {isVerified ? 'Revoke PHC Licence' : 'Recognize & Restore PHC Licence'}
                     </button>
+                    {adminUser.role === 'SUPER_ADMIN' && (
+                      pendingDeleteId === lab.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteLab(lab.id)}
+                            className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold min-h-[40px]"
+                          >
+                            Confirm Delete Lab
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteId(null)}
+                            className="px-2.5 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold min-h-[40px]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPendingDeleteId(lab.id)}
+                          title="Delete laboratory (only permitted if zero clinical history exists)"
+                          className="px-3 py-2 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold min-h-[40px] flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete Lab</span>
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
               );
@@ -519,6 +631,131 @@ export const AdminPortalPreview: React.FC = () => {
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'ACCOUNTS_REVIEWS' && (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Registered Platform Accounts ({adminUsersList.length})
+              </span>
+              <span className="text-[11px] text-slate-500">
+                Only SUPER_ADMIN can remove inactive accounts (self and last Super Admin are protected).
+              </span>
+            </div>
+            <div className="divide-y divide-slate-100 text-xs">
+              {adminUsersList.map((u) => {
+                const isSelf = u.id === adminUser.id;
+                return (
+                  <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-slate-900">{u.name}</span>
+                        <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                          {u.role}
+                        </span>
+                        {u.staffCode && (
+                          <span className="text-[10px] font-mono text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            {u.staffCode}
+                          </span>
+                        )}
+                        {isSelf && (
+                          <span className="text-[10px] font-mono font-bold text-[#0F5132]">· CURRENT SESSION</span>
+                        )}
+                      </div>
+                      <div className="font-mono text-[11px] text-slate-500">
+                        {u.email} · {u.phone} · {u.area}
+                      </div>
+                    </div>
+                    {adminUser.role === 'SUPER_ADMIN' && !isSelf && (
+                      pendingDeleteId === u.id ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAccount(u.id)}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold"
+                          >
+                            Confirm Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteId(null)}
+                            className="px-2.5 py-1.5 bg-slate-100 text-slate-700 rounded-lg font-semibold"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPendingDeleteId(u.id)}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-semibold flex items-center gap-1 self-start sm:self-center shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete Account</span>
+                        </button>
+                      )
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Verified Patient Reviews Moderation ({reviewsList.length})
+            </div>
+            {reviewsList.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">No patient reviews published yet.</div>
+            ) : (
+              <div className="divide-y divide-slate-100 text-xs">
+                {reviewsList.map((rev) => (
+                  <div key={rev.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono font-bold text-slate-900">{rev.bookingNumber}</span>
+                        <span className="text-amber-700 font-mono font-bold">{rev.rating}/5 ★</span>
+                        <span className="text-slate-500">by {rev.patientName}</span>
+                      </div>
+                      <p className="text-slate-700">{rev.comment}</p>
+                    </div>
+                    {adminUser.role === 'SUPER_ADMIN' && (
+                      pendingDeleteId === rev.id ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteReview(rev.id)}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold"
+                          >
+                            Confirm Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteId(null)}
+                            className="px-2.5 py-1.5 bg-slate-100 text-slate-700 rounded-lg font-semibold"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPendingDeleteId(rev.id)}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-semibold flex items-center gap-1 self-start sm:self-center shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete Review</span>
+                        </button>
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

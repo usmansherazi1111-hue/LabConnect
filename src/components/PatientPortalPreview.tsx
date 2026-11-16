@@ -45,6 +45,7 @@ import {
   XCircle,
   Bell,
   TrendingUp,
+  Trash2,
 } from 'lucide-react';
 
 interface PatientPortalPreviewProps {
@@ -118,6 +119,7 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
   const [rescheduleSlot, setRescheduleSlot] = useState<string>('08:30 AM – 09:30 AM');
   const [bookingActionMsg, setBookingActionMsg] = useState<string | null>(null);
   const [bookingActionError, setBookingActionError] = useState<string | null>(null);
+  const [pendingDeleteBookingId, setPendingDeleteBookingId] = useState<string | null>(null);
   const [reviewTargetBooking, setReviewTargetBooking] = useState<MockBooking | null>(null);
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewComment, setReviewComment] = useState<string>('');
@@ -400,6 +402,31 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
     }
   };
 
+  const handleDeleteBooking = async (booking: MockBooking) => {
+    setBookingActionMsg(null);
+    setBookingActionError(null);
+    const res = await apiClient.deleteBooking(booking.id, 'patient');
+    setPendingDeleteBookingId(null);
+    if (res.success) {
+      setBookingActionMsg(`Removed cancelled booking ${booking.bookingNumber}`);
+      loadPatientRecords();
+    } else {
+      setBookingActionError(res.error || 'Unable to remove booking');
+    }
+  };
+
+  const handleDeleteReview = async (reviewId: string, bookingNumber: string) => {
+    setBookingActionMsg(null);
+    setBookingActionError(null);
+    const res = await apiClient.deleteReview(reviewId, 'patient');
+    if (res.success) {
+      setBookingActionMsg(`Removed your review for ${bookingNumber}`);
+      loadCatalog();
+    } else {
+      setBookingActionError(res.error || 'Unable to delete review');
+    }
+  };
+
   const handleRescheduleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rescheduleTarget) return;
@@ -495,6 +522,24 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
     await apiClient.markNotificationsRead('patient');
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setUnreadNotifications(0);
+  };
+
+  const handleDeleteNotification = async (id: string) => {
+    const res = await apiClient.deleteNotification(id, 'patient');
+    if (res.success) {
+      setNotifications((prev) => {
+        const next = prev.filter((n) => n.id !== id);
+        setUnreadNotifications(next.filter((n) => !n.read).length);
+        return next;
+      });
+    }
+  };
+
+  const handleClearReadNotifications = async () => {
+    const res = await apiClient.clearReadNotifications('patient');
+    if (res.success) {
+      setNotifications((prev) => prev.filter((n) => !n.read));
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -601,6 +646,15 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                   Mark All Read
                 </button>
               )}
+              {notifications.some((n) => n.read) && (
+                <button
+                  type="button"
+                  onClick={handleClearReadNotifications}
+                  className="text-rose-700 font-semibold hover:underline"
+                >
+                  Clear Read
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowNotifications(false)}
@@ -622,9 +676,19 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                     </div>
                     <div className="text-slate-600 mt-0.5">{n.message}</div>
                   </div>
-                  <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
-                    {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                      {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteNotification(n.id)}
+                      title="Delete alert"
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -958,7 +1022,9 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                   {myBookings.map((bk) => {
                     const labObj = laboratories.find((l) => l.id === bk.labId);
                     const canModify = bk.status === 'PENDING' || bk.status === 'ACCEPTED';
-                    const alreadyReviewed = reviews.some((r) => r.bookingNumber === bk.bookingNumber);
+                    const existingReview = reviews.find((r) => r.bookingNumber === bk.bookingNumber);
+                    const alreadyReviewed = Boolean(existingReview);
+                    const canDeleteCancelled = bk.status === 'CANCELLED' && !bk.reportUrl;
                     return (
                       <div
                         key={bk.id}
@@ -1012,7 +1078,7 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                             </div>
                           </div>
 
-                          {(canModify || bk.status === 'COMPLETED') && (
+                          {(canModify || bk.status === 'COMPLETED' || canDeleteCancelled) && (
                             <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
                               {canModify && (
                                 <>
@@ -1038,6 +1104,35 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                                   </button>
                                 </>
                               )}
+                              {canDeleteCancelled && (
+                                pendingDeleteBookingId === bk.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteBooking(bk)}
+                                      className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded font-semibold text-[11px]"
+                                    >
+                                      Confirm Delete
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setPendingDeleteBookingId(null)}
+                                      className="px-2 py-1 bg-slate-100 text-slate-700 rounded font-semibold text-[11px]"
+                                    >
+                                      Keep
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingDeleteBookingId(bk.id)}
+                                    className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded font-semibold text-[11px] flex items-center gap-1"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>Delete</span>
+                                  </button>
+                                )
+                              )}
                               {bk.status === 'COMPLETED' && !alreadyReviewed && (
                                 <button
                                   type="button"
@@ -1053,10 +1148,22 @@ export const PatientPortalPreview: React.FC<PatientPortalPreviewProps> = ({
                                   <span>Leave Verified Review</span>
                                 </button>
                               )}
-                              {bk.status === 'COMPLETED' && alreadyReviewed && (
-                                <span className="text-[10px] font-mono text-amber-800 font-semibold">
-                                  ★ Verified Review Submitted
-                                </span>
+                              {bk.status === 'COMPLETED' && existingReview && (
+                                <div className="flex items-center gap-2 w-full justify-between">
+                                  <span className="text-[10px] font-mono text-amber-800 font-semibold">
+                                    ★ Verified Review Submitted
+                                  </span>
+                                  {existingReview.patientUserId === patientUser.id && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteReview(existingReview.id, bk.bookingNumber)}
+                                      className="text-[10px] text-rose-700 hover:underline font-semibold flex items-center gap-0.5"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Delete Review</span>
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </div>
                           )}

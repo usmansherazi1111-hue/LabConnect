@@ -103,6 +103,14 @@ export const apiClient = {
     return res.json();
   },
 
+  async deletePricing(pricingId: string) {
+    const res = await fetch(apiUrl(`/api/pricing/${encodeURIComponent(pricingId)}`), {
+      method: 'DELETE',
+      headers: authHeaders({}, 'lab'),
+    });
+    return res.json();
+  },
+
   async getLabBranches(labId: string) {
     const res = await fetch(apiUrl(`/api/laboratories/${encodeURIComponent(labId)}/branches`));
     return res.json();
@@ -187,6 +195,14 @@ export const apiClient = {
     return res.json();
   },
 
+  async deleteBooking(id: string, scope: AuthScope = 'patient') {
+    const res = await fetch(apiUrl(`/api/bookings/${encodeURIComponent(id)}`), {
+      method: 'DELETE',
+      headers: authHeaders({}, scope),
+    });
+    return res.json();
+  },
+
   async getLabPhlebotomists() {
     const res = await fetch(apiUrl('/api/lab/phlebotomists'), {
       headers: authHeaders({}, 'lab'),
@@ -220,6 +236,14 @@ export const apiClient = {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }, 'patient'),
       body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
+  async deleteReview(reviewId: string, scope: AuthScope = 'patient') {
+    const res = await fetch(apiUrl(`/api/reviews/${encodeURIComponent(reviewId)}`), {
+      method: 'DELETE',
+      headers: authHeaders({}, scope),
     });
     return res.json();
   },
@@ -308,11 +332,35 @@ export const apiClient = {
     return res.json();
   },
 
+  async deleteNotification(notificationId: string, scope: AuthScope) {
+    const res = await fetch(apiUrl(`/api/notifications/${encodeURIComponent(notificationId)}`), {
+      method: 'DELETE',
+      headers: authHeaders({}, scope),
+    });
+    return res.json();
+  },
+
+  async clearReadNotifications(scope: AuthScope) {
+    const res = await fetch(apiUrl('/api/notifications?scope=read'), {
+      method: 'DELETE',
+      headers: authHeaders({}, scope),
+    });
+    return res.json();
+  },
+
   async updateLabBranch(branchId: string, updates: { operatingHours?: string; homeCollectionFeePkr?: number }) {
     const res = await fetch(apiUrl(`/api/lab/branches/${encodeURIComponent(branchId)}`), {
       method: 'PATCH',
       headers: authHeaders({ 'Content-Type': 'application/json' }, 'lab'),
       body: JSON.stringify(updates),
+    });
+    return res.json();
+  },
+
+  async deleteLabBranch(branchId: string) {
+    const res = await fetch(apiUrl(`/api/lab/branches/${encodeURIComponent(branchId)}`), {
+      method: 'DELETE',
+      headers: authHeaders({}, 'lab'),
     });
     return res.json();
   },
@@ -472,6 +520,29 @@ export const apiClient = {
       method: 'PATCH',
       headers: authHeaders({ 'Content-Type': 'application/json' }, 'admin'),
       body: JSON.stringify({ subscriptionTier }),
+    });
+    return res.json();
+  },
+
+  async deleteLab(labId: string) {
+    const res = await fetch(apiUrl(`/api/admin/labs/${encodeURIComponent(labId)}`), {
+      method: 'DELETE',
+      headers: authHeaders({}, 'admin'),
+    });
+    return res.json();
+  },
+
+  async getAdminUsers() {
+    const res = await fetch(apiUrl('/api/admin/users'), {
+      headers: authHeaders({}, 'admin'),
+    });
+    return res.json();
+  },
+
+  async deleteAdminUser(userId: string) {
+    const res = await fetch(apiUrl(`/api/admin/users/${encodeURIComponent(userId)}`), {
+      method: 'DELETE',
+      headers: authHeaders({}, 'admin'),
     });
     return res.json();
   },

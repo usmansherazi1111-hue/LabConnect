@@ -1789,6 +1789,21 @@ async function startServer() {
     return res.json({ success: true, data: target });
   });
 
+  app.delete('/api/pricing/:id', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const idx = db.pricings.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Pricing entry not found' });
+    }
+    const target = db.pricings[idx];
+    if (req.authUser!.role === 'LAB_ADMIN' && req.authUser!.labId !== target.labId) {
+      return res.status(403).json({ success: false, error: 'Cannot delete tariffs belonging to another laboratory' });
+    }
+    db.pricings.splice(idx, 1);
+    appendAudit(req.authUser!.name, req.authUser!.role, 'TARIFF_DELETED', `${target.labId}:${target.testId}`);
+    saveDatabase();
+    return res.json({ success: true, message: 'Diagnostic tariff removed from catalogue' });
+  });
+
   // ==========================================
   // DEDICATED STAKEHOLDER AUTHENTICATION
   // ==========================================
@@ -2736,6 +2751,41 @@ async function startServer() {
     }
   );
 
+  // Delete Cancelled Booking Record (Strictly blocked for active or specimen-collected/completed clinical bookings)
+  app.delete(
+    '/api/bookings/:id',
+    requireRole('PATIENT', 'LAB_ADMIN', 'SUPER_ADMIN'),
+    (req: AuthenticatedRequest, res: Response) => {
+      const idx = db.bookings.findIndex((b) => b.id === req.params.id || b.bookingNumber === req.params.id);
+      if (idx === -1) {
+        return res.status(404).json({ success: false, error: 'Booking not found' });
+      }
+      const booking = db.bookings[idx];
+      const actor = req.authUser!;
+      const isAuthorized =
+        actor.role === 'SUPER_ADMIN' ||
+        (actor.role === 'LAB_ADMIN' && actor.labId === booking.labId) ||
+        (actor.role === 'PATIENT' &&
+          (booking.patientUserId === actor.id ||
+            normalizePakistaniPhone(booking.patientPhone) === normalizePakistaniPhone(actor.phone)));
+      if (!isAuthorized) {
+        return res.status(403).json({ success: false, error: 'Not authorized to delete this booking' });
+      }
+      const hasPublishedReport = db.reports.some((r) => r.bookingNumber === booking.bookingNumber);
+      if (booking.status !== 'CANCELLED' || hasPublishedReport) {
+        return res.status(409).json({
+          success: false,
+          error: 'Only cancelled appointments without published diagnostic reports can be deleted.',
+        });
+      }
+
+      db.bookings.splice(idx, 1);
+      appendAudit(actor.name, actor.role, 'BOOKING_DELETED', `${booking.bookingNumber} (${booking.patientName})`);
+      saveDatabase();
+      return res.json({ success: true, message: `Deleted cancelled booking ${booking.bookingNumber}` });
+    }
+  );
+
   // Lab Phlebotomist Directory & Rider Assignment (LAB_ADMIN / SUPER_ADMIN)
   app.get('/api/lab/phlebotomists', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const actor = req.authUser!;
@@ -2879,6 +2929,22 @@ async function startServer() {
       message: 'Verified review published',
       data: newReview,
     });
+  });
+
+  app.delete('/api/reviews/:id', requireRole('PATIENT', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const idx = db.reviews.findIndex((r) => r.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Review not found' });
+    }
+    const review = db.reviews[idx];
+    const actor = req.authUser!;
+    if (actor.role !== 'SUPER_ADMIN' && review.patientUserId !== actor.id) {
+      return res.status(403).json({ success: false, error: 'Not authorized to delete this review' });
+    }
+    db.reviews.splice(idx, 1);
+    appendAudit(actor.name, actor.role, 'REVIEW_DELETED', `${review.bookingNumber} (${review.labId})`);
+    saveDatabase();
+    return res.json({ success: true, message: 'Review removed' });
   });
 
   // ==========================================
@@ -3173,6 +3239,56 @@ async function startServer() {
     return res.json({ success: true });
   });
 
+  const notificationBelongsToActor = (n: NotificationRecord, actor: UserAccount) => {
+    const actorPhone = normalizePakistaniPhone(actor.phone);
+    if (actor.role === 'PATIENT') {
+      return (
+        n.recipientRole === 'PATIENT' &&
+        (n.targetUserId === actor.id || (n.targetPhone && normalizePakistaniPhone(n.targetPhone) === actorPhone))
+      );
+    }
+    if (actor.role === 'LAB_ADMIN') {
+      return n.recipientRole === 'LAB_ADMIN' && (!n.targetLabId || n.targetLabId === actor.labId);
+    }
+    if (actor.role === 'PHLEBOTOMIST') {
+      return n.recipientRole === 'PHLEBOTOMIST' && (!n.targetUserId || n.targetUserId === actor.id);
+    }
+    return n.recipientRole === actor.role || n.recipientRole === 'ALL';
+  };
+
+  app.delete(
+    '/api/notifications/:id',
+    requireRole('PATIENT', 'LAB_ADMIN', 'PHLEBOTOMIST', 'SUPER_ADMIN', 'PHC_INSPECTOR'),
+    (req: AuthenticatedRequest, res: Response) => {
+      const idx = db.notifications.findIndex((n) => n.id === req.params.id);
+      if (idx === -1) {
+        return res.status(404).json({ success: false, error: 'Notification not found' });
+      }
+      if (!notificationBelongsToActor(db.notifications[idx], req.authUser!)) {
+        return res.status(403).json({ success: false, error: 'Not authorized to delete this notification' });
+      }
+      db.notifications.splice(idx, 1);
+      saveDatabase();
+      return res.json({ success: true });
+    }
+  );
+
+  app.delete(
+    '/api/notifications',
+    requireRole('PATIENT', 'LAB_ADMIN', 'PHLEBOTOMIST', 'SUPER_ADMIN', 'PHC_INSPECTOR'),
+    (req: AuthenticatedRequest, res: Response) => {
+      const onlyRead = req.query.scope === 'read';
+      const actor = req.authUser!;
+      db.notifications = db.notifications.filter((n) => {
+        if (!notificationBelongsToActor(n, actor)) return true;
+        if (onlyRead && !n.read) return true;
+        return false;
+      });
+      saveDatabase();
+      return res.json({ success: true });
+    }
+  );
+
   app.patch('/api/lab/branches/:branchId', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const actor = req.authUser!;
     const lab = db.laboratories.find((l) => l.branches.some((b) => b.id === req.params.branchId));
@@ -3197,6 +3313,37 @@ async function startServer() {
     appendAudit(actor.name, actor.role, 'BRANCH_CONFIG_UPDATED', `${branch.name} (Fee: PKR ${branch.homeCollectionFeePkr})`);
     saveDatabase();
     return res.json({ success: true, data: branch });
+  });
+
+  app.delete('/api/lab/branches/:branchId', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const actor = req.authUser!;
+    const lab = db.laboratories.find((l) => l.branches.some((b) => b.id === req.params.branchId));
+    if (!lab) {
+      return res.status(404).json({ success: false, error: 'Laboratory branch not found' });
+    }
+    if (actor.role === 'LAB_ADMIN' && actor.labId !== lab.id) {
+      return res.status(403).json({ success: false, error: 'Cannot delete branches belonging to another laboratory' });
+    }
+    const branch = lab.branches.find((b) => b.id === req.params.branchId)!;
+    if (branch.isHeadquarters) {
+      return res.status(409).json({ success: false, error: 'Headquarters branch cannot be deleted.' });
+    }
+    if (lab.branches.length <= 1) {
+      return res.status(409).json({ success: false, error: 'Laboratory must retain at least one active Lahore branch.' });
+    }
+    const hasActiveBookings = db.bookings.some(
+      (b) => b.branchId === branch.id && b.status !== 'CANCELLED' && b.status !== 'COMPLETED'
+    );
+    if (hasActiveBookings) {
+      return res.status(409).json({
+        success: false,
+        error: 'Cannot remove branch while active or in-transit appointments are assigned to it.',
+      });
+    }
+    lab.branches = lab.branches.filter((b) => b.id !== branch.id);
+    appendAudit(actor.name, actor.role, 'BRANCH_DELETED', `${lab.name}: ${branch.name}`);
+    saveDatabase();
+    return res.json({ success: true, message: `Removed branch ${branch.name}` });
   });
 
   app.get('/api/lab/settlements', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
@@ -3349,6 +3496,55 @@ async function startServer() {
     appendAudit(req.authUser!.name, req.authUser!.role, 'LAB_SUBSCRIPTION_UPDATED', `${lab.name} -> ${tier} (PKR ${lab.monthlySaasFeePkr}/mo)`);
     saveDatabase();
     return res.json({ success: true, data: lab });
+  });
+
+  app.delete('/api/admin/labs/:id', requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const idx = db.laboratories.findIndex((l) => l.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Laboratory not found' });
+    }
+    const lab = db.laboratories[idx];
+    const hasLinkedData =
+      db.bookings.some((b) => b.labId === lab.id) ||
+      db.reports.some((r) => r.labId === lab.id) ||
+      db.settlementsLedger.some((s) => s.labId === lab.id);
+    if (hasLinkedData) {
+      return res.status(409).json({
+        success: false,
+        error: `Cannot delete ${lab.name} while clinical bookings, PDF reports, or settlements exist. Use Revoke PHC Licence instead.`,
+      });
+    }
+    db.laboratories.splice(idx, 1);
+    db.pricings = db.pricings.filter((p) => p.labId !== lab.id);
+    appendAudit(req.authUser!.name, req.authUser!.role, 'LAB_DELETED', lab.name);
+    saveDatabase();
+    return res.json({ success: true, message: `Removed laboratory ${lab.name}` });
+  });
+
+  app.get('/api/admin/users', requireRole('SUPER_ADMIN', 'PHC_INSPECTOR'), (_req: Request, res: Response) => {
+    return res.json({
+      success: true,
+      count: db.users.length,
+      data: db.users.map((u) => sanitizeUser(u)),
+    });
+  });
+
+  app.delete('/api/admin/users/:id', requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const idx = db.users.findIndex((u) => u.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Account not found' });
+    }
+    const target = db.users[idx];
+    if (target.id === req.authUser!.id) {
+      return res.status(409).json({ success: false, error: 'Cannot delete your currently signed-in administrator account.' });
+    }
+    if (target.role === 'SUPER_ADMIN' && db.users.filter((u) => u.role === 'SUPER_ADMIN').length <= 1) {
+      return res.status(409).json({ success: false, error: 'Cannot delete the last remaining Super Admin account.' });
+    }
+    db.users.splice(idx, 1);
+    appendAudit(req.authUser!.name, req.authUser!.role, 'USER_ACCOUNT_DELETED', `${target.name} (${target.role})`);
+    saveDatabase();
+    return res.json({ success: true, message: `Deleted account ${target.name}` });
   });
 
   app.post('/api/admin/settlements/settle', requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {

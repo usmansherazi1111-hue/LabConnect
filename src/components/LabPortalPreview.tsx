@@ -35,6 +35,7 @@ import {
   Plus,
   Bell,
   Wallet,
+  Trash2,
 } from 'lucide-react';
 
 export const LabPortalPreview: React.FC = () => {
@@ -93,6 +94,11 @@ export const LabPortalPreview: React.FC = () => {
   const [editingBranchId, setEditingBranchId] = useState<string | null>(null);
   const [editBranchHours, setEditBranchHours] = useState<string>('');
   const [editBranchFee, setEditBranchFee] = useState<string>('');
+  const [pendingDeletePricingId, setPendingDeletePricingId] = useState<string | null>(null);
+  const [pendingDeleteBranchId, setPendingDeleteBranchId] = useState<string | null>(null);
+  const [pendingDeleteBookingId, setPendingDeleteBookingId] = useState<string | null>(null);
+  const [labOpsMsg, setLabOpsMsg] = useState<string | null>(null);
+  const [labOpsError, setLabOpsError] = useState<string | null>(null);
 
   // Settlements & Notifications State
   const [labNotifications, setLabNotifications] = useState<NotificationRecord[]>([]);
@@ -373,6 +379,63 @@ export const LabPortalPreview: React.FC = () => {
     setUnreadLabNotifs(0);
   };
 
+  const handleDeleteLabNotif = async (id: string) => {
+    const res = await apiClient.deleteNotification(id, 'lab');
+    if (res.success) {
+      setLabNotifications((prev) => {
+        const next = prev.filter((n) => n.id !== id);
+        setUnreadLabNotifs(next.filter((n) => !n.read).length);
+        return next;
+      });
+    }
+  };
+
+  const handleClearReadLabNotifs = async () => {
+    const res = await apiClient.clearReadNotifications('lab');
+    if (res.success) {
+      setLabNotifications((prev) => prev.filter((n) => !n.read));
+    }
+  };
+
+  const handleDeleteCancelledBooking = async (bookingId: string, bookingNumber: string) => {
+    setLabOpsMsg(null);
+    setLabOpsError(null);
+    const res = await apiClient.deleteBooking(bookingId, 'lab');
+    setPendingDeleteBookingId(null);
+    if (res.success) {
+      setLabOpsMsg(`Removed cancelled order ${bookingNumber} from queue.`);
+      await fetchLiveBookings();
+    } else {
+      setLabOpsError(res.error || 'Unable to delete booking');
+    }
+  };
+
+  const handleDeletePricing = async (pricingId: string) => {
+    setLabOpsMsg(null);
+    setLabOpsError(null);
+    const res = await apiClient.deletePricing(pricingId);
+    setPendingDeletePricingId(null);
+    if (res.success) {
+      setLabOpsMsg('Test tariff removed from laboratory price list.');
+      loadCatalog();
+    } else {
+      setLabOpsError(res.error || 'Unable to remove tariff');
+    }
+  };
+
+  const handleDeleteBranch = async (branchId: string) => {
+    setLabOpsMsg(null);
+    setLabOpsError(null);
+    const res = await apiClient.deleteLabBranch(branchId);
+    setPendingDeleteBranchId(null);
+    if (res.success) {
+      setLabOpsMsg(res.message || 'Branch removed from laboratory network.');
+      loadCatalog();
+    } else {
+      setLabOpsError(res.error || 'Unable to remove branch');
+    }
+  };
+
   // Unauthenticated Institutional Gate
   if (!labUser) {
     return (
@@ -473,7 +536,7 @@ export const LabPortalPreview: React.FC = () => {
                     required
                     value={regPhone}
                     onChange={(e) => setRegPhone(e.target.value)}
-                    placeholder="0321 4455667"
+                    placeholder="+92 3XX XXXXXXX"
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-mono text-slate-800"
                   />
                 </div>
@@ -593,6 +656,11 @@ export const LabPortalPreview: React.FC = () => {
                   Mark All Read
                 </button>
               )}
+              {labNotifications.some((n) => n.read) && (
+                <button type="button" onClick={handleClearReadLabNotifs} className="text-rose-700 font-semibold hover:underline">
+                  Clear Read
+                </button>
+              )}
               <button type="button" onClick={() => setShowLabNotifs(false)} className="text-slate-500">
                 Close
               </button>
@@ -608,13 +676,36 @@ export const LabPortalPreview: React.FC = () => {
                     <div className="font-semibold text-slate-900">{n.title}</div>
                     <div className="text-slate-600">{n.message}</div>
                   </div>
-                  <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
-                    {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                      {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteLabNotif(n.id)}
+                      title="Dismiss notification"
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {labOpsMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center justify-between">
+          <span>{labOpsMsg}</span>
+          <button type="button" onClick={() => setLabOpsMsg(null)} className="text-emerald-800 font-semibold">✕</button>
+        </div>
+      )}
+      {labOpsError && (
+        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center justify-between">
+          <span>{labOpsError}</span>
+          <button type="button" onClick={() => setLabOpsError(null)} className="text-rose-800 font-semibold">✕</button>
         </div>
       )}
 
@@ -767,6 +858,35 @@ export const LabPortalPreview: React.FC = () => {
                       Mark {st}
                     </button>
                   ))}
+                  {selectedBooking.status === 'CANCELLED' && !selectedBooking.reportUrl && (
+                    pendingDeleteBookingId === selectedBooking.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCancelledBooking(selectedBooking.id, selectedBooking.bookingNumber)}
+                          className="px-3 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg min-h-[38px]"
+                        >
+                          Confirm Remove Cancelled Order
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPendingDeleteBookingId(null)}
+                          className="px-2.5 py-2 text-xs font-semibold bg-slate-100 text-slate-700 rounded-lg min-h-[38px]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setPendingDeleteBookingId(selectedBooking.id)}
+                        className="px-3.5 py-2 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg min-h-[38px] flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Cancelled Order</span>
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
 
@@ -904,13 +1024,24 @@ export const LabPortalPreview: React.FC = () => {
                               )
                             )
                           }
-                          className="col-span-3 border border-slate-200 rounded px-1.5 py-1.5 font-mono text-[10px] font-bold bg-slate-50"
+                          className="col-span-2 border border-slate-200 rounded px-1.5 py-1.5 font-mono text-[10px] font-bold bg-slate-50"
                         >
                           <option value="NORMAL">NORMAL</option>
                           <option value="HIGH">HIGH</option>
                           <option value="LOW">LOW</option>
                           <option value="CRITICAL">CRITICAL</option>
                         </select>
+                        <div className="col-span-1 flex justify-end">
+                          <button
+                            type="button"
+                            disabled={reportParams.length <= 1}
+                            onClick={() => setReportParams((prev) => prev.filter((_, i) => i !== idx))}
+                            title="Remove parameter row"
+                            className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1126,16 +1257,45 @@ export const LabPortalPreview: React.FC = () => {
                               </button>
                             </div>
                           ) : (
-                            <button
-                              onClick={() => {
-                                setEditingPricingId(pr.id);
-                                setEditPriceVal(String(pr.pricePkr));
-                                setEditTatVal(String(pr.statedTurnaroundHours));
-                              }}
-                              className="text-[#0F5132] font-semibold hover:underline"
-                            >
-                              Edit Rate
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={() => {
+                                  setEditingPricingId(pr.id);
+                                  setEditPriceVal(String(pr.pricePkr));
+                                  setEditTatVal(String(pr.statedTurnaroundHours));
+                                }}
+                                className="text-[#0F5132] font-semibold hover:underline"
+                              >
+                                Edit Rate
+                              </button>
+                              {pendingDeletePricingId === pr.id ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeletePricing(pr.id)}
+                                    className="px-2 py-0.5 bg-rose-600 text-white rounded text-[11px] font-semibold"
+                                  >
+                                    Confirm
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingDeletePricingId(null)}
+                                    className="text-slate-500 text-[11px]"
+                                  >
+                                    Cancel
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingDeletePricingId(pr.id)}
+                                  className="text-rose-700 hover:underline font-semibold inline-flex items-center gap-1"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Delete</span>
+                                </button>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -1200,16 +1360,47 @@ export const LabPortalPreview: React.FC = () => {
                             </button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => {
-                              setEditingBranchId(br.id);
-                              setEditBranchHours(br.operatingHours);
-                              setEditBranchFee(String(br.homeCollectionFeePkr));
-                            }}
-                            className="text-[#0F5132] font-semibold hover:underline"
-                          >
-                            Edit Branch
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => {
+                                setEditingBranchId(br.id);
+                                setEditBranchHours(br.operatingHours);
+                                setEditBranchFee(String(br.homeCollectionFeePkr));
+                              }}
+                              className="text-[#0F5132] font-semibold hover:underline"
+                            >
+                              Edit Branch
+                            </button>
+                            {!br.isHeadquarters && operatorLab.branches.length > 1 && (
+                              pendingDeleteBranchId === br.id ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteBranch(br.id)}
+                                    className="px-2 py-1 bg-rose-600 text-white rounded font-semibold"
+                                  >
+                                    Confirm
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingDeleteBranchId(null)}
+                                    className="text-slate-500"
+                                  >
+                                    Cancel
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingDeleteBranchId(br.id)}
+                                  className="text-rose-700 hover:underline font-semibold inline-flex items-center gap-1"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete Branch</span>
+                                </button>
+                              )
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
