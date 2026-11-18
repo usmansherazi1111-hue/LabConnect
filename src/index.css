@@ -6,10 +6,27 @@
     --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+    --font-urdu: 'Noto Naskh Arabic', 'DM Sans', system-ui, sans-serif;
+
+    --lc-forest: #174C3C;
+    --lc-botanical: #28745B;
+    --lc-teal: #4C9184;
+    --lc-cream: #F8F8F3;
+    --lc-sage: #E8EFE8;
+    --lc-charcoal: #202A27;
+    --lc-stone: #737D78;
+    --lc-white: #FFFFFF;
+    --lc-border: #DCE4DE;
+  }
+
+  html {
+    scroll-behavior: smooth;
   }
 
   body {
     font-family: var(--font-body);
+    background-color: var(--lc-cream);
+    color: var(--lc-charcoal);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior-y: contain;
@@ -23,6 +40,15 @@
     font-family: var(--font-display);
     letter-spacing: -0.02em;
   }
+
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+}
+
+.font-urdu {
+  font-family: var(--font-urdu);
+  line-height: 1.95;
 }
 
 .tabular-nums {
@@ -30,11 +56,37 @@
 }
 
 .pb-safe {
-  padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+  padding-bottom: max(0.4rem, env(safe-area-inset-bottom));
 }
 
 .pt-safe {
   padding-top: env(safe-area-inset-top);
+}
+
+/* Subtle calm skeleton shimmer */
+@keyframes lc-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.lc-skeleton {
+  background: linear-gradient(90deg, #eff3ef 25%, #e4ece5 50%, #eff3ef 75%);
+  background-size: 200% 100%;
+  animation: lc-shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .lc-skeleton {
+    animation: none;
+    background: #e8efe8;
+  }
 }
 
 /* Custom subtle scrollbars */
@@ -46,10 +98,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #c5d0c9;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #737D78;
 }
-

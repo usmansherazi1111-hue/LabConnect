@@ -62,6 +62,17 @@ function authHeaders(extra: Record<string, string> = {}, scope?: AuthScope): Rec
   };
 }
 
+export function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export const apiClient = {
   async getHealth() {
     const res = await fetch(apiUrl('/api/health'));
@@ -88,6 +99,45 @@ export const apiClient = {
     if (labId) query.set('labId', labId);
     if (testId) query.set('testId', testId);
     const res = await fetch(apiUrl(`/api/pricing?${query.toString()}`));
+    return res.json();
+  },
+
+  async createCustomTestPanel(
+    payload: {
+      code: string;
+      name: string;
+      category: 'HEMATOLOGY' | 'ENDOCRINOLOGY' | 'BIOCHEMISTRY' | 'INFECTIOUS_DISEASE' | 'CARDIOLOGY' | 'VITAMINS';
+      sampleType: 'Whole Blood (EDTA)' | 'Serum (Plain/Gel)' | 'Plasma (Fluoride)' | 'Midstream Urine';
+      fastingHours: number;
+      preparationInstructions?: string;
+      commonNormalRange: string;
+      initialPricePkr?: number;
+      discountedPricePkr?: number;
+      statedTurnaroundHours?: number;
+      labId?: string;
+    },
+    scope: AuthScope = 'lab'
+  ) {
+    const res = await fetch(apiUrl('/api/tests'), {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }, scope),
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async createPricing(payload: {
+    testId: string;
+    pricePkr: number;
+    discountedPricePkr?: number;
+    statedTurnaroundHours: number;
+    labId?: string;
+  }) {
+    const res = await fetch(apiUrl('/api/pricing'), {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }, 'lab'),
+      body: JSON.stringify(payload),
+    });
     return res.json();
   },
 
@@ -221,7 +271,9 @@ export const apiClient = {
 
   async getReviews(labId?: string) {
     const query = labId ? `?labId=${encodeURIComponent(labId)}` : '';
-    const res = await fetch(apiUrl(`/api/reviews${query}`));
+    const res = await fetch(apiUrl(`/api/reviews${query}`), {
+      headers: authHeaders({}, 'patient'),
+    });
     return res.json();
   },
 
@@ -278,12 +330,15 @@ export const apiClient = {
     return res.json();
   },
 
-  getReportPdfUrl(bookingNumber: string, download = false, scope?: AuthScope): string {
-    const token = getStoredToken(scope);
-    const params = new URLSearchParams();
-    if (download) params.set('download', '1');
-    if (token) params.set('token', token);
-    return apiUrl(`/api/reports/${encodeURIComponent(bookingNumber)}/pdf?${params.toString()}`);
+  async fetchReportPdfBlob(bookingNumber: string, download = false, scope?: AuthScope): Promise<Blob> {
+    const query = download ? '?download=1' : '';
+    const res = await fetch(apiUrl(`/api/reports/${encodeURIComponent(bookingNumber)}/pdf${query}`), {
+      headers: authHeaders({}, scope),
+    });
+    if (!res.ok) {
+      throw new Error('Failed to load clinical PDF report');
+    }
+    return res.blob();
   },
 
   async sendReportEmail(bookingNumber: string, recipientEmail?: string, scope?: AuthScope) {
@@ -295,22 +350,25 @@ export const apiClient = {
     return res.json();
   },
 
-  async explainReport(params: {
-    testName: string;
-    testValue: string;
-    referenceRange: string;
-    language: 'EN' | 'UR';
-    parameters?: {
-      parameter: string;
-      observedValue: string;
-      unit: string;
+  async explainReport(
+    params: {
+      testName: string;
+      testValue: string;
       referenceRange: string;
-      flag: string;
-    }[];
-  }) {
+      language: 'EN' | 'UR';
+      parameters?: {
+        parameter: string;
+        observedValue: string;
+        unit: string;
+        referenceRange: string;
+        flag: string;
+      }[];
+    },
+    scope: AuthScope = 'patient'
+  ) {
     const res = await fetch(apiUrl('/api/ai/explain'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }, scope),
       body: JSON.stringify(params),
     });
     return res.json();
@@ -353,6 +411,23 @@ export const apiClient = {
       method: 'PATCH',
       headers: authHeaders({ 'Content-Type': 'application/json' }, 'lab'),
       body: JSON.stringify(updates),
+    });
+    return res.json();
+  },
+
+  async createLabBranch(payload: {
+    name: string;
+    area: string;
+    address: string;
+    phone?: string;
+    operatingHours?: string;
+    homeCollectionFeePkr: number;
+    labId?: string;
+  }) {
+    const res = await fetch(apiUrl('/api/lab/branches'), {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }, 'lab'),
+      body: JSON.stringify(payload),
     });
     return res.json();
   },
@@ -451,11 +526,11 @@ export const apiClient = {
   },
 
   // Phlebotomist Auth
-  async loginPhlebotomist(staffCode: string, phone: string, labId?: string, branchId?: string) {
+  async loginPhlebotomist(staffCode: string, phone: string, cnicLast4: string, labId?: string, branchId?: string) {
     const res = await fetch(apiUrl('/api/auth/phlebotomist/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ staffCode, phone, labId, branchId }),
+      body: JSON.stringify({ staffCode, phone, cnicLast4, labId, branchId }),
     });
     return res.json();
   },
@@ -524,6 +599,28 @@ export const apiClient = {
     return res.json();
   },
 
+  async createAdminLab(payload: {
+    name: string;
+    phcLicence: string;
+    accreditation?: string;
+    tagline?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    subscriptionTier: 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+    hqBranchName: string;
+    hqArea: string;
+    hqAddress: string;
+    hqOperatingHours?: string;
+    hqHomeCollectionFeePkr: number;
+  }) {
+    const res = await fetch(apiUrl('/api/admin/labs'), {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }, 'admin'),
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
   async deleteLab(labId: string) {
     const res = await fetch(apiUrl(`/api/admin/labs/${encodeURIComponent(labId)}`), {
       method: 'DELETE',
@@ -556,14 +653,22 @@ export const apiClient = {
     return res.json();
   },
 
-  getAuditCsvUrl(): string {
-    const token = getStoredToken('admin');
-    return apiUrl(`/api/admin/audit/export${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+  async downloadAuditCsv(): Promise<void> {
+    const res = await fetch(apiUrl('/api/admin/audit/export'), {
+      headers: authHeaders({}, 'admin'),
+    });
+    if (!res.ok) throw new Error('Unable to export audit log');
+    const blob = await res.blob();
+    triggerBlobDownload(blob, 'labconnect_audit_logs.csv');
   },
 
-  getBackupSnapshotUrl(): string {
-    const token = getStoredToken('admin');
-    return apiUrl(`/api/admin/backup/snapshot${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+  async downloadBackupSnapshot(): Promise<void> {
+    const res = await fetch(apiUrl('/api/admin/backup/snapshot'), {
+      headers: authHeaders({}, 'admin'),
+    });
+    if (!res.ok) throw new Error('Unable to export backup snapshot');
+    const blob = await res.blob();
+    triggerBlobDownload(blob, 'labconnect_sanitized_backup.json');
   },
 
   async getCurrentUser(scope: AuthScope) {
@@ -574,8 +679,13 @@ export const apiClient = {
   },
 
   async logout(scope?: AuthScope) {
+    const headers = authHeaders({}, scope);
     setStoredToken(null, scope);
-    const res = await fetch(apiUrl('/api/auth/logout'), { method: 'POST' });
-    return res.json();
+    try {
+      const res = await fetch(apiUrl('/api/auth/logout'), { method: 'POST', headers });
+      return res.json();
+    } catch {
+      return { success: true };
+    }
   },
 };

@@ -33,13 +33,14 @@ export interface AuthUser {
 }
 
 interface AuthContextType {
+  authReady: boolean;
   patientUser: AuthUser | null;
   labUser: AuthUser | null;
   phlebUser: AuthUser | null;
   adminUser: AuthUser | null;
   activeFamilyMember: FamilyMember | null;
   setActiveFamilyMember: (member: FamilyMember | null) => void;
-  sendOtp: (phone: string) => Promise<{ success: boolean; message?: string; demoCode?: string; error?: string }>;
+  sendOtp: (phone: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   verifyOtp: (
     phone: string,
     otp: string,
@@ -64,6 +65,7 @@ interface AuthContextType {
   loginPhlebotomist: (
     staffCode: string,
     phone: string,
+    cnicLast4: string,
     labId?: string,
     branchId?: string
   ) => Promise<{ success: boolean; error?: string }>;
@@ -92,6 +94,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [authReady, setAuthReady] = useState<boolean>(false);
   const [patientUser, setPatientUser] = useState<AuthUser | null>(null);
   const [labUser, setLabUser] = useState<AuthUser | null>(null);
   const [phlebUser, setPhlebUser] = useState<AuthUser | null>(null);
@@ -99,6 +102,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [activeFamilyMember, setActiveFamilyMember] = useState<FamilyMember | null>(null);
 
   useEffect(() => {
+    const isRoleValidForScope = (scope: AuthScope, role: UserRole) => {
+      if (scope === 'patient') return role === 'PATIENT';
+      if (scope === 'lab') return role === 'LAB_ADMIN';
+      if (scope === 'phlebotomist') return role === 'PHLEBOTOMIST';
+      if (scope === 'admin') return role === 'SUPER_ADMIN' || role === 'PHC_INSPECTOR';
+      return false;
+    };
+
     const scopes: { scope: AuthScope; setter: React.Dispatch<React.SetStateAction<AuthUser | null>> }[] = [
       { scope: 'patient', setter: setPatientUser },
       { scope: 'lab', setter: setLabUser },
@@ -106,18 +117,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       { scope: 'admin', setter: setAdminUser },
     ];
 
-    scopes.forEach(async ({ scope, setter }) => {
-      if (!getStoredToken(scope)) return;
-      try {
-        const res = await apiClient.getCurrentUser(scope);
-        if (res.success && res.user) {
-          setter(res.user);
-        } else {
+    Promise.all(
+      scopes.map(async ({ scope, setter }) => {
+        if (!getStoredToken(scope)) return;
+        try {
+          const res = await apiClient.getCurrentUser(scope);
+          if (res.success && res.user && isRoleValidForScope(scope, res.user.role)) {
+            setter(res.user);
+          } else {
+            setStoredToken(null, scope);
+          }
+        } catch {
           setStoredToken(null, scope);
         }
-      } catch {
-        setStoredToken(null, scope);
-      }
+      })
+    ).finally(() => {
+      setAuthReady(true);
     });
   }, []);
 
@@ -191,9 +206,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const loginPhlebotomist = async (staffCode: string, phone: string, labId?: string, branchId?: string) => {
+  const loginPhlebotomist = async (staffCode: string, phone: string, cnicLast4: string, labId?: string, branchId?: string) => {
     try {
-      const res = await apiClient.loginPhlebotomist(staffCode, phone, labId, branchId);
+      const res = await apiClient.loginPhlebotomist(staffCode, phone, cnicLast4, labId, branchId);
       if (res.success && res.user && res.sessionToken) {
         setStoredToken(res.sessionToken, 'phlebotomist');
         setPhlebUser(res.user);
@@ -305,6 +320,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <AuthContext.Provider
       value={{
+        authReady,
         patientUser,
         labUser,
         phlebUser,

@@ -4,6 +4,7 @@
  */
 
 import express, { Request, Response, NextFunction } from 'express';
+import http from 'http';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
@@ -328,10 +329,13 @@ interface OtpState {
   otp: string;
   expiresAt: number;
   attempts: number;
+  verifyAttempts: number;
+  lastSentAt: number;
   createdAt: number;
 }
 
 interface AuthTokenPayload {
+  jti: string;
   userId: string;
   role: UserRole;
   phone: string;
@@ -343,9 +347,38 @@ interface AuthTokenPayload {
 
 interface AuthenticatedRequest extends Request {
   authUser?: UserAccount;
+  authTokenJti?: string;
+  authTokenExp?: number;
 }
 
 const OTP_STORE = new Map<string, OtpState>();
+const REVOKED_TOKEN_JTIS = new Map<string, number>();
+const AUTH_LOCKOUTS = new Map<string, { fails: number; lockedUntil: number }>();
+
+const ALLOWED_BOOKING_STATUSES: ReadonlySet<BookingRecord['status']> = new Set([
+  'PENDING',
+  'ACCEPTED',
+  'DISPATCHED',
+  'SAMPLE_COLLECTED',
+  'PROCESSING',
+  'COMPLETED',
+  'CANCELLED',
+]);
+
+const ALLOWED_COURIER_STAGES: ReadonlySet<NonNullable<BookingRecord['phlebotomistStatus']>> = new Set([
+  'PENDING_ASSIGNMENT',
+  'EN_ROUTE',
+  'ARRIVED',
+  'SAMPLE_COLLECTED',
+  'IN_TRANSIT',
+  'RECEIVED_AT_LAB',
+]);
+
+const PHLEB_ALLOWED_BOOKING_STATUSES: ReadonlySet<BookingRecord['status']> = new Set([
+  'DISPATCHED',
+  'SAMPLE_COLLECTED',
+  'PROCESSING',
+]);
 
 // ==========================================
 // SECURITY HELPERS (SCRYPT + HMAC-SHA256)
@@ -366,8 +399,57 @@ function verifyPassword(password: string, storedHash?: string): boolean {
   return crypto.timingSafeEqual(derived, keyBuf);
 }
 
+function constantTimeStringEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function isAuthLocked(lockKey: string): { locked: boolean; retryAfterSec: number } {
+  const entry = AUTH_LOCKOUTS.get(lockKey);
+  if (!entry) return { locked: false, retryAfterSec: 0 };
+  const now = Date.now();
+  if (entry.lockedUntil > now) {
+    return { locked: true, retryAfterSec: Math.ceil((entry.lockedUntil - now) / 1000) };
+  }
+  if (entry.lockedUntil > 0 && entry.lockedUntil <= now) {
+    AUTH_LOCKOUTS.delete(lockKey);
+  }
+  return { locked: false, retryAfterSec: 0 };
+}
+
+function recordAuthFailure(lockKey: string, maxFails = 6, lockDurationMs = 15 * 60 * 1000): boolean {
+  const now = Date.now();
+  const entry = AUTH_LOCKOUTS.get(lockKey) || { fails: 0, lockedUntil: 0 };
+  entry.fails += 1;
+  if (entry.fails >= maxFails) {
+    entry.lockedUntil = now + lockDurationMs;
+  }
+  if (AUTH_LOCKOUTS.size > 4000) {
+    for (const [k, v] of AUTH_LOCKOUTS.entries()) {
+      if (v.lockedUntil > 0 && v.lockedUntil <= now) AUTH_LOCKOUTS.delete(k);
+    }
+  }
+  AUTH_LOCKOUTS.set(lockKey, entry);
+  return entry.lockedUntil > now;
+}
+
+function clearAuthFailure(lockKey: string): void {
+  AUTH_LOCKOUTS.delete(lockKey);
+}
+
+function maskPersonName(fullName: string): string {
+  return String(fullName || 'Verified Patient')
+    .trim()
+    .split(/\s+/)
+    .map((part) => (part.length <= 1 ? part : `${part[0]}${'*'.repeat(Math.min(4, part.length - 1))}`))
+    .join(' ');
+}
+
 function createSessionToken(user: UserAccount): string {
   const payload: AuthTokenPayload = {
+    jti: crypto.randomUUID(),
     userId: user.id,
     role: user.role,
     phone: user.phone,
@@ -391,10 +473,22 @@ function verifySessionToken(token: string): AuthTokenPayload | null {
     const b = Buffer.from(expectedSig);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as AuthTokenPayload;
-    if (Date.now() > payload.exp) return null;
+    const now = Date.now();
+    if (!payload.jti || !payload.userId || now > payload.exp) return null;
+    if (REVOKED_TOKEN_JTIS.has(payload.jti)) return null;
     return payload;
   } catch {
     return null;
+  }
+}
+
+function revokeSessionToken(jti: string, exp: number): void {
+  const now = Date.now();
+  REVOKED_TOKEN_JTIS.set(jti, exp);
+  if (REVOKED_TOKEN_JTIS.size > 2000) {
+    for (const [key, expiresAt] of REVOKED_TOKEN_JTIS.entries()) {
+      if (expiresAt <= now) REVOKED_TOKEN_JTIS.delete(key);
+    }
   }
 }
 
@@ -1565,19 +1659,17 @@ async function dispatchPatientReportEmail(
 
 function extractAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
-  let token = '';
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.slice(7).trim();
-  } else if (typeof req.query.token === 'string' && req.query.token.trim()) {
-    token = req.query.token.trim();
-  }
-
-  if (token) {
-    const payload = verifySessionToken(token);
-    if (payload) {
-      const user = db.users.find((u) => u.id === payload.userId);
-      if (user) {
-        req.authUser = user;
+    const token = authHeader.slice(7).trim();
+    if (token) {
+      const payload = verifySessionToken(token);
+      if (payload) {
+        const user = db.users.find((u) => u.id === payload.userId);
+        if (user) {
+          req.authUser = user;
+          req.authTokenJti = payload.jti;
+          req.authTokenExp = payload.exp;
+        }
       }
     }
   }
@@ -1589,13 +1681,13 @@ function requireRole(...allowedRoles: UserRole[]) {
     if (!req.authUser) {
       return res.status(401).json({
         success: false,
-        error: 'Authentication required. Please sign in through your dedicated stakeholder portal.',
+        error: 'Authentication required. Please sign in through your portal.',
       });
     }
     if (!allowedRoles.includes(req.authUser.role)) {
       return res.status(403).json({
         success: false,
-        error: `Access denied for role ${req.authUser.role}. Required role: ${allowedRoles.join(' or ')}.`,
+        error: 'Access denied for your account role.',
       });
     }
     next();
@@ -1603,27 +1695,47 @@ function requireRole(...allowedRoles: UserRole[]) {
 }
 
 // ==========================================
-// SLIDING-WINDOW RATE LIMITER & SECURITY HEADERS
+// MULTI-TIER SLIDING-WINDOW RATE LIMITER & SECURITY HEADERS
 // ==========================================
 
 const RATE_LIMIT_BUCKETS = new Map<string, number[]>();
 
-function slidingWindowLimiter(maxRequests: number, windowMs: number) {
+function slidingWindowLimiter(
+  maxRequests: number,
+  windowMs: number,
+  keyBuilder?: (req: Request) => string
+) {
   return (req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip || req.socket.remoteAddress || 'local';
-    const key = `${ip}:${req.path}`;
+    const key = keyBuilder ? keyBuilder(req) : `${ip}:${req.baseUrl}${req.path}`;
     const now = Date.now();
-    const recent = (RATE_LIMIT_BUCKETS.get(key) || []).filter((ts) => now - ts < windowMs);
+    const existing = RATE_LIMIT_BUCKETS.get(key) || [];
+    const recent = existing.filter((ts) => now - ts < windowMs);
+
+    if (RATE_LIMIT_BUCKETS.size > 5000) {
+      for (const [k, timestamps] of RATE_LIMIT_BUCKETS.entries()) {
+        const active = timestamps.filter((ts) => now - ts < windowMs);
+        if (active.length === 0) RATE_LIMIT_BUCKETS.delete(k);
+        else RATE_LIMIT_BUCKETS.set(k, active);
+      }
+    }
+
     if (recent.length >= maxRequests) {
+      const oldest = recent[0] || now;
+      const retryAfterSec = Math.max(1, Math.ceil((windowMs - (now - oldest)) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSec));
+      res.setHeader('X-RateLimit-Limit', String(maxRequests));
+      res.setHeader('X-RateLimit-Remaining', '0');
       return res.status(429).json({
         success: false,
-        error: 'Rate limit exceeded. Please wait briefly before retrying.',
+        error: `Too many requests. Please wait ${retryAfterSec}s before retrying.`,
       });
     }
     recent.push(now);
     RATE_LIMIT_BUCKETS.set(key, recent);
     res.setHeader('X-RateLimit-Limit', String(maxRequests));
     res.setHeader('X-RateLimit-Remaining', String(Math.max(0, maxRequests - recent.length)));
+    res.setHeader('X-RateLimit-Reset', String(Math.ceil((recent[0] + windowMs) / 1000)));
     next();
   };
 }
@@ -1636,14 +1748,32 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 3000;
 
-  app.use(express.json({ limit: '5mb' }));
-  app.use((_req: Request, res: Response, next: NextFunction) => {
+  app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '512kb' }));
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    if (
+      req.path.startsWith('/api/auth') ||
+      req.path.startsWith('/api/bookings') ||
+      req.path.startsWith('/api/reports') ||
+      req.path.startsWith('/api/admin') ||
+      req.path.startsWith('/api/lab') ||
+      req.path.startsWith('/api/notifications') ||
+      req.path.startsWith('/api/ai')
+    ) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.setHeader('Pragma', 'no-cache');
+    }
     next();
   });
-  app.use('/api/auth', slidingWindowLimiter(45, 5 * 60 * 1000));
+
+  const allowedOriginEnv = (process.env.ALLOWED_ORIGIN || '').trim();
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (
@@ -1652,10 +1782,12 @@ async function startServer() {
         origin === 'http://localhost' ||
         origin === 'capacitor://localhost' ||
         origin.startsWith('http://localhost:') ||
-        origin.startsWith('http://127.0.0.1:'))
+        origin.startsWith('http://127.0.0.1:') ||
+        (allowedOriginEnv && origin === allowedOriginEnv))
     ) {
       res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
     }
     if (req.method === 'OPTIONS') {
@@ -1663,24 +1795,35 @@ async function startServer() {
     }
     next();
   });
-  app.use(extractAuth);
 
-  // Health Check
-  app.get('/api/health', (_req: Request, res: Response) => {
-    res.json({
+  app.use(extractAuth);
+  app.use('/api', slidingWindowLimiter(180, 60 * 1000, (req) => `global:${req.ip || 'local'}`));
+
+  const otpSendLimiter = slidingWindowLimiter(5, 10 * 60 * 1000, (req) => `otp-send:${req.ip || 'local'}`);
+  const otpVerifyLimiter = slidingWindowLimiter(10, 10 * 60 * 1000, (req) => `otp-verify:${req.ip || 'local'}`);
+  const staffAuthLimiter = slidingWindowLimiter(12, 15 * 60 * 1000, (req) => `staff-auth:${req.ip || 'local'}:${req.path}`);
+  const aiExplainLimiter = slidingWindowLimiter(15, 5 * 60 * 1000, (req) => `ai:${(req as AuthenticatedRequest).authUser?.id || req.ip || 'local'}`);
+  const writeMutationLimiter = slidingWindowLimiter(35, 5 * 60 * 1000, (req) => `write:${(req as AuthenticatedRequest).authUser?.id || req.ip || 'local'}`);
+
+  // Health Check (Minimal publicly; internal counts strictly restricted to authenticated Admins)
+  app.get('/api/health', (req: AuthenticatedRequest, res: Response) => {
+    const isAdmin = req.authUser && (req.authUser.role === 'SUPER_ADMIN' || req.authUser.role === 'PHC_INSPECTOR');
+    return res.json({
       status: 'HEALTHY',
-      service: 'LabConnect Core Engine (Lahore Division)',
-      persistence: 'DISK_JSON_ACTIVE',
       city: 'Lahore, Punjab, Pakistan',
       timestamp: new Date().toISOString(),
-      counts: {
-        laboratories: db.laboratories.length,
-        tests: db.tests.length,
-        pricings: db.pricings.length,
-        bookings: db.bookings.length,
-        reports: db.reports.length,
-        emailDispatches: db.emailLogs.length,
-      },
+      ...(isAdmin
+        ? {
+            counts: {
+              laboratories: db.laboratories.length,
+              tests: db.tests.length,
+              pricings: db.pricings.length,
+              bookings: db.bookings.length,
+              reports: db.reports.length,
+              emailDispatches: db.emailLogs.length,
+            },
+          }
+        : {}),
     });
   });
 
@@ -1748,6 +1891,142 @@ async function startServer() {
     });
   });
 
+  app.post('/api/tests', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const actor = req.authUser!;
+    const {
+      code,
+      name,
+      category,
+      sampleType,
+      fastingHours,
+      preparationInstructions,
+      commonNormalRange,
+      description,
+      initialPricePkr,
+      discountedPricePkr,
+      statedTurnaroundHours,
+      labId: bodyLabId,
+    } = req.body || {};
+
+    const cleanCode = String(code || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    const cleanName = String(name || '').trim();
+    if (!cleanCode || cleanCode.length < 2 || !cleanName || cleanName.length < 3) {
+      return res.status(400).json({ success: false, error: 'Valid test code (min 2 chars) and panel name are required.' });
+    }
+    if (db.tests.some((t) => t.code.toUpperCase() === cleanCode)) {
+      return res.status(409).json({ success: false, error: `Diagnostic test code ${cleanCode} already exists.` });
+    }
+
+    const allowedCategories = ['HEMATOLOGY', 'ENDOCRINOLOGY', 'BIOCHEMISTRY', 'INFECTIOUS_DISEASE', 'CARDIOLOGY', 'VITAMINS'] as const;
+    const resolvedCategory = allowedCategories.includes(category) ? category : 'BIOCHEMISTRY';
+    const allowedSamples = ['Whole Blood (EDTA)', 'Serum (Plain/Gel)', 'Plasma (Fluoride)', 'Midstream Urine'] as const;
+    const resolvedSample = allowedSamples.includes(sampleType) ? sampleType : 'Serum (Plain/Gel)';
+    const fastingNum = Math.max(0, Math.min(24, Number(fastingHours || 0)));
+    const normalRange = String(commonNormalRange || 'Within Clinical Reference').trim();
+    const prepText = String(preparationInstructions || (fastingNum > 0 ? `${fastingNum} hours fasting required before sample collection.` : 'No special fasting required.')).trim();
+
+    const testId = `test-${cleanCode.toLowerCase()}-${crypto.randomBytes(2).toString('hex')}`;
+    const newTest: DiagnosticTestRecord = {
+      id: testId,
+      code: cleanCode,
+      name: cleanName,
+      category: resolvedCategory,
+      sampleType: resolvedSample,
+      fastingHours: isNaN(fastingNum) ? 0 : fastingNum,
+      preparationInstructions: prepText,
+      synonyms: [cleanCode, cleanName],
+      description: String(description || `${cleanName} diagnostic panel analyzed on calibrated clinical analyzers.`).trim(),
+      commonNormalRange: normalRange,
+      defaultParameters: [
+        {
+          parameter: cleanName,
+          defaultValue: 'Within Reference',
+          unit: 'Std',
+          referenceRange: normalRange.slice(0, 40),
+          flag: 'NORMAL',
+        },
+      ],
+    };
+
+    let createdPricing: PricingRecord | undefined;
+    const targetLabId = actor.role === 'LAB_ADMIN' ? actor.labId : String(bodyLabId || '');
+    if (initialPricePkr !== undefined && initialPricePkr !== '' && targetLabId) {
+      const priceNum = Number(initialPricePkr);
+      if (isNaN(priceNum) || priceNum < 100 || priceNum > 100000) {
+        return res.status(400).json({ success: false, error: 'Initial price must be between PKR 100 and PKR 100,000.' });
+      }
+      const tatNum = Math.max(1, Math.min(168, Number(statedTurnaroundHours || 12)));
+      const dNum = discountedPricePkr !== undefined && discountedPricePkr !== '' && discountedPricePkr !== null ? Number(discountedPricePkr) : undefined;
+      if (dNum !== undefined && (isNaN(dNum) || dNum < 100 || dNum > priceNum)) {
+        return res.status(400).json({ success: false, error: 'Discounted price must be valid and <= published rate.' });
+      }
+      createdPricing = {
+        id: `price-${crypto.randomBytes(4).toString('hex')}`,
+        labId: targetLabId,
+        testId: newTest.id,
+        pricePkr: priceNum,
+        discountedPricePkr: dNum,
+        statedTurnaroundHours: isNaN(tatNum) ? 12 : tatNum,
+        effectiveFrom: new Date().toISOString().slice(0, 10),
+        lastConfirmedAt: new Date().toISOString().slice(0, 10),
+        verifiedBy: actor.name,
+        homeCollectionAvailable: true,
+      };
+      db.pricings.push(createdPricing);
+    }
+
+    db.tests.push(newTest);
+    appendAudit(actor.name, actor.role, 'TEST_PANEL_CREATED', `${cleanCode}: ${cleanName}`);
+    saveDatabase();
+    return res.status(201).json({ success: true, data: { test: newTest, pricing: createdPricing } });
+  });
+
+  app.post('/api/pricing', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const actor = req.authUser!;
+    const { testId, pricePkr, discountedPricePkr, statedTurnaroundHours, labId: bodyLabId } = req.body || {};
+    const targetLabId = actor.role === 'LAB_ADMIN' ? actor.labId : String(bodyLabId || '');
+    const lab = db.laboratories.find((l) => l.id === targetLabId);
+    if (!lab) {
+      return res.status(404).json({ success: false, error: 'Laboratory not found for tariff creation.' });
+    }
+    const test = db.tests.find((t) => t.id === testId);
+    if (!test) {
+      return res.status(404).json({ success: false, error: 'Selected diagnostic test not found.' });
+    }
+    if (db.pricings.some((p) => p.labId === lab.id && p.testId === test.id)) {
+      return res.status(409).json({ success: false, error: `Tariff for ${test.name} is already published for ${lab.name}. Edit the existing row instead.` });
+    }
+    const num = Number(pricePkr);
+    if (isNaN(num) || num < 100 || num > 100000) {
+      return res.status(400).json({ success: false, error: 'Price must be between PKR 100 and PKR 100,000.' });
+    }
+    const dNum = discountedPricePkr !== undefined && discountedPricePkr !== '' && discountedPricePkr !== null ? Number(discountedPricePkr) : undefined;
+    if (dNum !== undefined && (isNaN(dNum) || dNum < 100 || dNum > num)) {
+      return res.status(400).json({ success: false, error: 'Discounted price must be valid and <= standard price.' });
+    }
+    const tat = Number(statedTurnaroundHours || 12);
+    if (isNaN(tat) || tat < 1 || tat > 168) {
+      return res.status(400).json({ success: false, error: 'Turnaround must be between 1 and 168 hours.' });
+    }
+
+    const entry: PricingRecord = {
+      id: `price-${crypto.randomBytes(4).toString('hex')}`,
+      labId: lab.id,
+      testId: test.id,
+      pricePkr: num,
+      discountedPricePkr: dNum,
+      statedTurnaroundHours: tat,
+      effectiveFrom: new Date().toISOString().slice(0, 10),
+      lastConfirmedAt: new Date().toISOString().slice(0, 10),
+      verifiedBy: actor.name,
+      homeCollectionAvailable: true,
+    };
+    db.pricings.push(entry);
+    appendAudit(actor.name, actor.role, 'TARIFF_CREATED', `${lab.name}: ${test.code} @ PKR ${num}`);
+    saveDatabase();
+    return res.status(201).json({ success: true, data: entry });
+  });
+
   app.patch('/api/pricing/:id', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const idx = db.pricings.findIndex((p) => p.id === req.params.id);
     if (idx === -1) {
@@ -1808,16 +2087,24 @@ async function startServer() {
   // DEDICATED STAKEHOLDER AUTHENTICATION
   // ==========================================
 
-  app.post('/api/auth/otp/send', (req: Request, res: Response) => {
-    const rawPhone = req.body.phone;
+  app.post('/api/auth/otp/send', otpSendLimiter, (req: Request, res: Response) => {
+    const rawPhone = req.body?.phone;
     if (!rawPhone) {
       return res.status(400).json({ success: false, error: 'Pakistani mobile number is required' });
     }
-    const phone = normalizePakistaniPhone(rawPhone);
+    const phone = normalizePakistaniPhone(String(rawPhone));
     if (!/^\+923\d{9}$/.test(phone)) {
       return res.status(400).json({
         success: false,
         error: 'Invalid Pakistani mobile number. Use 03XX XXXXXXX or +92 3XX XXXXXXX.',
+      });
+    }
+
+    const lock = isAuthLocked(`otp:${phone}`);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: `Too many verification attempts. Please wait ${Math.ceil(lock.retryAfterSec / 60)} minute(s) before requesting a new code.`,
       });
     }
 
@@ -1826,36 +2113,48 @@ async function startServer() {
     if (existing && now - existing.createdAt < 15 * 60 * 1000 && existing.attempts >= 5) {
       return res.status(429).json({
         success: false,
-        error: 'Too many OTP requests. Please try again in 15 minutes.',
+        error: 'Too many OTP requests for this number. Please try again in 15 minutes.',
       });
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = crypto.randomInt(100000, 1000000).toString();
     OTP_STORE.set(phone, {
       phone,
       otp,
       expiresAt: now + 300 * 1000,
-      attempts: (existing?.attempts || 0) + 1,
-      createdAt: existing?.createdAt || now,
+      attempts: existing && now - existing.createdAt < 15 * 60 * 1000 ? existing.attempts + 1 : 1,
+      verifyAttempts: 0,
+      lastSentAt: now,
+      createdAt: existing && now - existing.createdAt < 15 * 60 * 1000 ? existing.createdAt : now,
     });
 
-    console.log(`[SMS Gateway] Patient OTP for ${phone}: ${otp}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[SMS Gateway] Patient OTP dispatched for ***${phone.slice(-4)}: ${otp}`);
+    }
 
     return res.json({
       success: true,
       message: `6-digit verification code dispatched to ${phone}`,
       expiresInSeconds: 300,
-      demoCode: otp,
     });
   });
 
-  app.post('/api/auth/otp/verify', (req: Request, res: Response) => {
-    const { phone: rawPhone, otp, name, email } = req.body;
+  app.post('/api/auth/otp/verify', otpVerifyLimiter, (req: Request, res: Response) => {
+    const { phone: rawPhone, otp, name, email } = req.body || {};
     if (!rawPhone || !otp) {
       return res.status(400).json({ success: false, error: 'Mobile number and 6-digit OTP are required' });
     }
 
-    const phone = normalizePakistaniPhone(rawPhone);
+    const phone = normalizePakistaniPhone(String(rawPhone));
+    const lockKey = `otp:${phone}`;
+    const lock = isAuthLocked(lockKey);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: `Account temporarily locked due to repeated failed verification attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute(s).`,
+      });
+    }
+
     const record = OTP_STORE.get(phone);
     if (!record) {
       return res.status(400).json({ success: false, error: 'No active OTP request found. Request a new code.' });
@@ -1864,22 +2163,35 @@ async function startServer() {
       OTP_STORE.delete(phone);
       return res.status(400).json({ success: false, error: 'OTP expired after 300 seconds. Please request a new code.' });
     }
-    if (record.otp !== String(otp).trim()) {
+    const cleanOtp = String(otp).trim();
+    if (!/^\d{6}$/.test(cleanOtp) || !constantTimeStringEqual(record.otp, cleanOtp)) {
+      record.verifyAttempts += 1;
+      if (record.verifyAttempts >= 5) {
+        OTP_STORE.delete(phone);
+        recordAuthFailure(lockKey, 1, 15 * 60 * 1000);
+        appendAudit(phone, 'PATIENT', 'PATIENT_OTP_LOCKED', '5 failed verification attempts');
+        saveDatabase();
+        return res.status(429).json({
+          success: false,
+          error: 'Too many incorrect verification attempts. Request a new code after 15 minutes.',
+        });
+      }
       return res.status(400).json({ success: false, error: 'Incorrect 6-digit OTP code.' });
     }
 
     OTP_STORE.delete(phone);
+    clearAuthFailure(lockKey);
 
     let user = db.users.find((u) => normalizePakistaniPhone(u.phone) === phone && u.role === 'PATIENT');
     if (!user) {
-      if (email && !isValidEmail(email)) {
+      if (email && !isValidEmail(String(email))) {
         return res.status(400).json({ success: false, error: 'Please provide a valid email address for PDF report delivery.' });
       }
       user = {
         id: `usr-pat-${Date.now()}`,
-        name: (name || '').trim().length >= 3 ? name.trim() : 'Patient User',
+        name: String(name || '').trim().length >= 3 ? String(name).trim().slice(0, 80) : 'Patient User',
         phone,
-        email: email && isValidEmail(email) ? email.trim().toLowerCase() : `${phone.replace(/\+/g, '')}@patient.labconnect.pk`,
+        email: email && isValidEmail(String(email)) ? String(email).trim().toLowerCase() : `${phone.replace(/\+/g, '')}@patient.labconnect.pk`,
         role: 'PATIENT',
         area: 'Lahore, Punjab',
         familyMembers: [],
@@ -1887,8 +2199,8 @@ async function startServer() {
       };
       db.users.push(user);
     } else {
-      if (name && name.trim().length >= 3) user.name = name.trim();
-      if (email && isValidEmail(email)) user.email = email.trim().toLowerCase();
+      if (name && String(name).trim().length >= 3) user.name = String(name).trim().slice(0, 80);
+      if (email && isValidEmail(String(email))) user.email = String(email).trim().toLowerCase();
     }
 
     appendAudit(user.name, 'PATIENT', 'PATIENT_OTP_VERIFIED', user.phone);
@@ -1903,13 +2215,23 @@ async function startServer() {
   });
 
   // Lab Staff Sign In (Validates against registered institutional staff)
-  app.post('/api/auth/lab/login', (req: Request, res: Response) => {
-    const { email, password, labId, branchId } = req.body;
-    if (!isValidEmail(email)) {
+  app.post('/api/auth/lab/login', staffAuthLimiter, (req: Request, res: Response) => {
+    const { email, password, labId, branchId } = req.body || {};
+    if (!isValidEmail(String(email || ''))) {
       return res.status(400).json({ success: false, error: 'Valid institutional email is required' });
     }
-    if (!password || password.length < 6) {
+    if (!password || String(password).length < 6) {
       return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const lockKey = `lab:${cleanEmail}`;
+    const lock = isAuthLocked(lockKey);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: `Sign-in temporarily locked due to failed attempts. Retry in ${Math.ceil(lock.retryAfterSec / 60)} minute(s).`,
+      });
     }
 
     const lab = db.laboratories.find((l) => l.id === labId);
@@ -1918,21 +2240,23 @@ async function startServer() {
     }
 
     const existing = db.users.find(
-      (u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.role === 'LAB_ADMIN'
+      (u) => u.email.toLowerCase() === cleanEmail && u.role === 'LAB_ADMIN'
     );
-    if (!existing || !verifyPassword(password, existing.passwordHash)) {
+    if (!existing || !verifyPassword(String(password), existing.passwordHash)) {
+      recordAuthFailure(lockKey, 6, 15 * 60 * 1000);
       return res.status(401).json({
         success: false,
-        error: 'Invalid laboratory email or password. Use verified staff credentials or Register Staff.',
+        error: 'Invalid laboratory email or password.',
       });
     }
     if (existing.labId && existing.labId !== lab.id) {
       return res.status(403).json({
         success: false,
-        error: `These credentials belong to ${db.laboratories.find((l) => l.id === existing.labId)?.name || existing.labId}, not ${lab.name}.`,
+        error: `These credentials belong to ${db.laboratories.find((l) => l.id === existing.labId)?.name || 'another laboratory'}, not ${lab.name}.`,
       });
     }
 
+    clearAuthFailure(lockKey);
     const branch = lab.branches.find((b) => b.id === (branchId || existing.branchId)) || lab.branches[0];
     existing.branchId = branch.id;
     existing.area = branch.area;
@@ -1950,18 +2274,18 @@ async function startServer() {
   });
 
   // Lab Staff Register
-  app.post('/api/auth/lab/register', (req: Request, res: Response) => {
-    const { fullName, email, password, phone, labId, branchId } = req.body;
-    if (!fullName || fullName.trim().length < 3) {
+  app.post('/api/auth/lab/register', staffAuthLimiter, (req: Request, res: Response) => {
+    const { fullName, email, password, phone, labId, branchId } = req.body || {};
+    if (!fullName || String(fullName).trim().length < 3) {
       return res.status(400).json({ success: false, error: 'Full name must be at least 3 characters' });
     }
-    if (!isValidEmail(email)) {
+    if (!isValidEmail(String(email || ''))) {
       return res.status(400).json({ success: false, error: 'Valid work email is required' });
     }
-    if (!password || password.length < 6) {
-      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
+    if (!password || String(password).length < 8) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
     }
-    const normalizedPhone = normalizePakistaniPhone(phone);
+    const normalizedPhone = normalizePakistaniPhone(String(phone || ''));
     if (!/^\+923\d{9}$/.test(normalizedPhone)) {
       return res.status(400).json({ success: false, error: 'Valid Pakistani mobile (+92 3XX XXXXXXX) is required' });
     }
@@ -1972,17 +2296,18 @@ async function startServer() {
     }
     const branch = lab.branches.find((b) => b.id === branchId) || lab.branches[0];
 
-    const duplicate = db.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+    const cleanEmail = String(email).trim().toLowerCase();
+    const duplicate = db.users.find((u) => u.email.toLowerCase() === cleanEmail);
     if (duplicate) {
       return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
     }
 
     const newStaff: UserAccount = {
       id: `usr-lab-${Date.now()}`,
-      name: fullName.trim(),
-      email: email.trim().toLowerCase(),
+      name: String(fullName).trim().slice(0, 80),
+      email: cleanEmail,
       phone: normalizedPhone,
-      passwordHash: hashPassword(password),
+      passwordHash: hashPassword(String(password)),
       role: 'LAB_ADMIN',
       labId: lab.id,
       branchId: branch.id,
@@ -2004,29 +2329,44 @@ async function startServer() {
     });
   });
 
-  // Phlebotomist Login
-  app.post('/api/auth/phlebotomist/login', (req: Request, res: Response) => {
-    const { staffCode, phone, labId, branchId } = req.body;
-    if (!staffCode || staffCode.trim().length < 4) {
+  // Phlebotomist Login (Requires Staff Code + Registered Phone + CNIC Last 4)
+  app.post('/api/auth/phlebotomist/login', staffAuthLimiter, (req: Request, res: Response) => {
+    const { staffCode, phone, cnicLast4, labId, branchId } = req.body || {};
+    if (!staffCode || String(staffCode).trim().length < 4) {
       return res.status(400).json({ success: false, error: 'Valid Rider / Staff Code (e.g. MOTO-04) is required' });
     }
-    const normalizedPhone = normalizePakistaniPhone(phone);
+    const normalizedPhone = normalizePakistaniPhone(String(phone || ''));
     if (!/^\+923\d{9}$/.test(normalizedPhone)) {
       return res.status(400).json({ success: false, error: 'Valid Pakistani mobile (+92 3XX XXXXXXX) is required' });
     }
+    const cleanCnic = String(cnicLast4 || '').trim();
+    if (!/^\d{4}$/.test(cleanCnic)) {
+      return res.status(400).json({ success: false, error: 'Last 4 digits of CNIC are required for courier sign-in' });
+    }
 
-    const codeUpper = staffCode.trim().toUpperCase();
+    const codeUpper = String(staffCode).trim().toUpperCase();
+    const lockKey = `phleb:${codeUpper}`;
+    const lock = isAuthLocked(lockKey);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: `Courier sign-in temporarily locked. Retry in ${Math.ceil(lock.retryAfterSec / 60)} minute(s).`,
+      });
+    }
+
     const existing = db.users.find(
       (u) =>
         u.role === 'PHLEBOTOMIST' &&
         (u.staffCode?.toUpperCase() === codeUpper || u.id.toUpperCase().includes(codeUpper)) &&
-        normalizePakistaniPhone(u.phone) === normalizedPhone
+        normalizePakistaniPhone(u.phone) === normalizedPhone &&
+        (!u.cnicLast4 || constantTimeStringEqual(u.cnicLast4, cleanCnic))
     );
 
     if (!existing) {
+      recordAuthFailure(lockKey, 6, 15 * 60 * 1000);
       return res.status(401).json({
         success: false,
-        error: 'Courier credentials not found. Verify Staff Code and registered phone or Register Agent.',
+        error: 'Courier credentials not verified. Check Staff Code, mobile number, and CNIC digits.',
       });
     }
 
@@ -2037,6 +2377,7 @@ async function startServer() {
         error: `Courier ${codeUpper} is assigned to ${db.laboratories.find((l) => l.id === existing.labId)?.name}, not ${lab.name}.`,
       });
     }
+    clearAuthFailure(lockKey);
     const branch = lab.branches.find((b) => b.id === (branchId || existing.branchId)) || lab.branches[0];
 
     appendAudit(existing.name, 'PHLEBOTOMIST', 'COURIER_SIGN_IN', `${codeUpper} @ ${branch.name}`);
@@ -2053,19 +2394,19 @@ async function startServer() {
   });
 
   // Phlebotomist Register
-  app.post('/api/auth/phlebotomist/register', (req: Request, res: Response) => {
-    const { fullName, staffCode, phone, cnicLast4, labId, branchId } = req.body;
-    if (!fullName || fullName.trim().length < 3) {
+  app.post('/api/auth/phlebotomist/register', staffAuthLimiter, (req: Request, res: Response) => {
+    const { fullName, staffCode, phone, cnicLast4, labId, branchId } = req.body || {};
+    if (!fullName || String(fullName).trim().length < 3) {
       return res.status(400).json({ success: false, error: 'Full name must be at least 3 characters' });
     }
-    if (!staffCode || staffCode.trim().length < 4) {
+    if (!staffCode || String(staffCode).trim().length < 4) {
       return res.status(400).json({ success: false, error: 'Rider Code must be at least 4 characters (e.g. MOTO-14)' });
     }
-    const normalizedPhone = normalizePakistaniPhone(phone);
+    const normalizedPhone = normalizePakistaniPhone(String(phone || ''));
     if (!/^\+923\d{9}$/.test(normalizedPhone)) {
       return res.status(400).json({ success: false, error: 'Valid Pakistani mobile (+92 3XX XXXXXXX) is required' });
     }
-    if (!cnicLast4 || !/^\d{4}$/.test(cnicLast4.trim())) {
+    if (!cnicLast4 || !/^\d{4}$/.test(String(cnicLast4).trim())) {
       return res.status(400).json({ success: false, error: 'Last 4 digits of CNIC are required' });
     }
 
@@ -2074,7 +2415,7 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'Valid Lahore laboratory must be selected' });
     }
     const branch = lab.branches.find((b) => b.id === branchId) || lab.branches[0];
-    const codeUpper = staffCode.trim().toUpperCase();
+    const codeUpper = String(staffCode).trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
 
     const duplicate = db.users.find(
       (u) => u.role === 'PHLEBOTOMIST' && u.staffCode?.toUpperCase() === codeUpper
@@ -2083,13 +2424,14 @@ async function startServer() {
       return res.status(409).json({ success: false, error: `Rider code ${codeUpper} is already registered.` });
     }
 
+    const cleanName = String(fullName).trim().slice(0, 80);
     const newPhleb: UserAccount = {
       id: `usr-phleb-${Date.now()}`,
-      name: `${fullName.trim()} (${codeUpper})`,
+      name: `${cleanName} (${codeUpper})`,
       phone: normalizedPhone,
       email: `${codeUpper.toLowerCase()}@dispatch.labconnect.pk`,
       staffCode: codeUpper,
-      cnicLast4: cnicLast4.trim(),
+      cnicLast4: String(cnicLast4).trim(),
       role: 'PHLEBOTOMIST',
       labId: lab.id,
       branchId: branch.id,
@@ -2103,7 +2445,7 @@ async function startServer() {
 
     return res.status(201).json({
       success: true,
-      message: `Registered Field Phlebotomist ${fullName.trim()} (${codeUpper})`,
+      message: `Registered Field Phlebotomist ${cleanName} (${codeUpper})`,
       sessionToken: createSessionToken(newPhleb),
       user: sanitizeUser(newPhleb),
       lab,
@@ -2120,7 +2462,7 @@ async function startServer() {
   });
 
   // One-time initial Super Admin setup (permanently locked after first use or when env seed password is set)
-  app.post('/api/auth/admin/setup', (req: Request, res: Response) => {
+  app.post('/api/auth/admin/setup', staffAuthLimiter, (req: Request, res: Response) => {
     if (db.adminBootstrapped || process.env.SEED_ADMIN_PASSWORD) {
       return res.status(403).json({
         success: false,
@@ -2131,7 +2473,7 @@ async function startServer() {
     if (!name || String(name).trim().length < 3) {
       return res.status(400).json({ success: false, error: 'Administrator full name must be at least 3 characters' });
     }
-    if (!isValidEmail(email)) {
+    if (!isValidEmail(String(email || ''))) {
       return res.status(400).json({ success: false, error: 'Valid institutional email is required' });
     }
     if (!password || String(password).length < 8) {
@@ -2144,12 +2486,12 @@ async function startServer() {
     );
 
     if (adminUser) {
-      adminUser.name = String(name).trim();
+      adminUser.name = String(name).trim().slice(0, 80);
       adminUser.passwordHash = hashPassword(String(password));
     } else {
       adminUser = {
         id: `usr-admin-${Date.now()}`,
-        name: String(name).trim(),
+        name: String(name).trim().slice(0, 80),
         phone: '+923001122334',
         email: cleanEmail,
         passwordHash: hashPassword(String(password)),
@@ -2173,19 +2515,31 @@ async function startServer() {
   });
 
   // Dedicated PHC Admin & Inspector Login
-  app.post('/api/auth/admin/login', (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    if (!isValidEmail(email) || !password) {
+  app.post('/api/auth/admin/login', staffAuthLimiter, (req: Request, res: Response) => {
+    const { email, password } = req.body || {};
+    if (!isValidEmail(String(email || '')) || !password) {
       return res.status(400).json({ success: false, error: 'Official admin email and password are required' });
     }
+    const cleanEmail = String(email).trim().toLowerCase();
+    const lockKey = `admin:${cleanEmail}`;
+    const lock = isAuthLocked(lockKey);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: `Admin sign-in temporarily locked due to failed attempts. Retry in ${Math.ceil(lock.retryAfterSec / 60)} minute(s).`,
+      });
+    }
+
     const adminUser = db.users.find(
       (u) =>
-        u.email.toLowerCase() === email.trim().toLowerCase() &&
+        u.email.toLowerCase() === cleanEmail &&
         (u.role === 'SUPER_ADMIN' || u.role === 'PHC_INSPECTOR')
     );
-    if (!adminUser || !verifyPassword(password, adminUser.passwordHash)) {
+    if (!adminUser || !verifyPassword(String(password), adminUser.passwordHash)) {
+      recordAuthFailure(lockKey, 5, 15 * 60 * 1000);
       return res.status(401).json({ success: false, error: 'Invalid regulatory administrator credentials' });
     }
+    clearAuthFailure(lockKey);
     db.adminBootstrapped = true;
     appendAudit(adminUser.name, adminUser.role, 'ADMIN_CONSOLE_SIGN_IN', adminUser.email);
     saveDatabase();
@@ -2259,7 +2613,14 @@ async function startServer() {
     });
   });
 
-  app.post('/api/auth/logout', (_req: Request, res: Response) => {
+  app.post('/api/auth/logout', (req: AuthenticatedRequest, res: Response) => {
+    if (req.authTokenJti && req.authTokenExp) {
+      revokeSessionToken(req.authTokenJti, req.authTokenExp);
+    }
+    if (req.authUser) {
+      appendAudit(req.authUser.name, req.authUser.role, 'SESSION_LOGOUT', req.authUser.email || req.authUser.phone);
+      saveDatabase();
+    }
     return res.json({ success: true, message: 'Session terminated' });
   });
 
@@ -2301,7 +2662,7 @@ async function startServer() {
     }
   );
 
-  app.post('/api/bookings', requireRole('PATIENT', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/bookings', requireRole('PATIENT', 'SUPER_ADMIN'), writeMutationLimiter, (req: AuthenticatedRequest, res: Response) => {
     const {
       patientName,
       familyMemberId,
@@ -2316,22 +2677,23 @@ async function startServer() {
       scheduledDate,
       scheduledTimeSlot,
       fastingAcknowledged,
-    } = req.body;
+    } = req.body || {};
 
-    if (!patientName || patientName.trim().length < 3) {
+    if (!patientName || String(patientName).trim().length < 3) {
       return res.status(400).json({ success: false, error: 'Patient full name must be at least 3 characters' });
     }
 
     let resolvedFamilyMemberName: string | undefined;
     let resolvedFamilyMemberId: string | undefined;
-    if (familyMemberId && req.authUser?.familyMembers?.length) {
-      const mem = req.authUser.familyMembers.find((f) => f.id === familyMemberId);
-      if (mem) {
-        resolvedFamilyMemberId = mem.id;
-        resolvedFamilyMemberName = mem.name.includes(`(${mem.relationship})`)
-          ? mem.name
-          : `${mem.name} (${mem.relationship})`;
+    if (familyMemberId) {
+      const mem = req.authUser?.familyMembers?.find((f) => f.id === familyMemberId);
+      if (!mem) {
+        return res.status(400).json({ success: false, error: 'Selected family profile does not belong to your account' });
       }
+      resolvedFamilyMemberId = mem.id;
+      resolvedFamilyMemberName = mem.name.includes(`(${mem.relationship})`)
+        ? mem.name
+        : `${mem.name} (${mem.relationship})`;
     }
 
     const normalizedPhone = normalizePakistaniPhone(patientPhone);
@@ -2364,14 +2726,15 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'Selected Lahore branch does not belong to this laboratory' });
     }
 
-    if (!Array.isArray(testIds) || testIds.length === 0) {
-      return res.status(400).json({ success: false, error: 'At least one diagnostic test must be selected' });
+    if (!Array.isArray(testIds) || testIds.length === 0 || testIds.length > 25) {
+      return res.status(400).json({ success: false, error: 'Select between 1 and 25 diagnostic tests' });
     }
+    const uniqueTestIds = Array.from(new Set(testIds.map((t: unknown) => String(t))));
 
     // Server-authoritative PKR pricing calculation (prevents client price tampering)
     let computedTestsTotal = 0;
     let requiresFasting = false;
-    for (const tid of testIds) {
+    for (const tid of uniqueTestIds) {
       const testObj = db.tests.find((t) => t.id === tid);
       const priceObj = db.pricings.find((p) => p.labId === targetLab.id && p.testId === tid);
       if (!testObj || !priceObj) {
@@ -2444,7 +2807,7 @@ async function startServer() {
       branchId: targetBranch.id,
       branchName: targetBranch.name,
       branchAddress: targetBranch.address,
-      testIds,
+      testIds: uniqueTestIds,
       collectionType: mode,
       scheduledDate,
       scheduledTimeSlot: scheduledTimeSlot || '07:30 AM – 08:30 AM',
@@ -2502,22 +2865,27 @@ async function startServer() {
       return res.status(404).json({ success: false, error: 'Booking number not found in Lahore ledger' });
     }
 
-    const phoneLast4 = typeof req.query.phoneLast4 === 'string' ? req.query.phoneLast4.trim() : '';
     const actor = req.authUser;
 
+    if (!actor) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please sign in to view live sample and courier tracking.',
+      });
+    }
+
     const isAuthorized =
-      (actor && (actor.role === 'SUPER_ADMIN' || actor.role === 'PHC_INSPECTOR')) ||
-      (actor && (actor.role === 'LAB_ADMIN' || actor.role === 'PHLEBOTOMIST') && actor.labId === booking.labId) ||
-      (actor &&
-        actor.role === 'PATIENT' &&
+      actor.role === 'SUPER_ADMIN' ||
+      actor.role === 'PHC_INSPECTOR' ||
+      ((actor.role === 'LAB_ADMIN' || actor.role === 'PHLEBOTOMIST') && actor.labId === booking.labId) ||
+      (actor.role === 'PATIENT' &&
         (booking.patientUserId === actor.id ||
-          normalizePakistaniPhone(booking.patientPhone) === normalizePakistaniPhone(actor.phone))) ||
-      (phoneLast4.length === 4 && booking.patientPhone.endsWith(phoneLast4));
+          normalizePakistaniPhone(booking.patientPhone) === normalizePakistaniPhone(actor.phone)));
 
     if (!isAuthorized) {
       return res.status(403).json({
         success: false,
-        error: 'Tracking is access-controlled. Sign in as the booking owner or enter matching last 4 digits of mobile number.',
+        error: 'Access denied. You are only authorized to track bookings belonging to your account or laboratory.',
       });
     }
 
@@ -2563,7 +2931,32 @@ async function startServer() {
         sampleBarcode,
         coldChainTempCelsius,
         fastingConfirmed,
-      } = req.body;
+      } = req.body || {};
+
+      if (status !== undefined && !ALLOWED_BOOKING_STATUSES.has(status)) {
+        return res.status(400).json({ success: false, error: 'Invalid booking status value' });
+      }
+      if (phlebotomistStatus !== undefined && !ALLOWED_COURIER_STAGES.has(phlebotomistStatus)) {
+        return res.status(400).json({ success: false, error: 'Invalid courier stage value' });
+      }
+
+      if (actor.role === 'PHLEBOTOMIST') {
+        if (booking.collectionType !== 'HOME_COLLECTION') {
+          return res.status(403).json({ success: false, error: 'Couriers can only update HOME_COLLECTION bookings' });
+        }
+        if (
+          booking.phlebotomistPhone &&
+          normalizePakistaniPhone(booking.phlebotomistPhone) !== normalizePakistaniPhone(actor.phone)
+        ) {
+          return res.status(403).json({ success: false, error: 'Booking is assigned to another field courier' });
+        }
+        if (status !== undefined && !PHLEB_ALLOWED_BOOKING_STATUSES.has(status)) {
+          return res.status(403).json({
+            success: false,
+            error: 'Couriers are restricted to dispatch, collection, and lab-handover transitions',
+          });
+        }
+      }
 
       if (phlebotomistStatus === 'SAMPLE_COLLECTED') {
         if (!fastingConfirmed) {
@@ -2586,10 +2979,10 @@ async function startServer() {
       }
 
       if (status) booking.status = status;
-      if (phlebotomistName) booking.phlebotomistName = phlebotomistName;
+      if (phlebotomistName) booking.phlebotomistName = String(phlebotomistName).trim().slice(0, 80);
       if (actor.role === 'PHLEBOTOMIST' && !booking.phlebotomistPhone) booking.phlebotomistPhone = actor.phone;
       if (phlebotomistStatus) booking.phlebotomistStatus = phlebotomistStatus;
-      if (sampleBarcode) booking.sampleBarcode = String(sampleBarcode).trim().toUpperCase();
+      if (sampleBarcode) booking.sampleBarcode = String(sampleBarcode).trim().toUpperCase().slice(0, 32);
       if (fastingConfirmed !== undefined) booking.fastingConfirmed = !!fastingConfirmed;
 
       const stage = (phlebotomistStatus || status) as TrackingEventRecord['stage'];
@@ -2865,14 +3258,36 @@ async function startServer() {
     }
   );
 
-  // Verified Laboratory Reviews (Booking-Gated)
-  app.get('/api/reviews', (req: Request, res: Response) => {
+  // Verified Laboratory Reviews (Booking-Gated; Masks third-party PII)
+  app.get('/api/reviews', (req: AuthenticatedRequest, res: Response) => {
     const labId = typeof req.query.labId === 'string' ? req.query.labId : undefined;
-    const list = labId ? db.reviews.filter((r) => r.labId === labId) : db.reviews;
-    return res.json({ success: true, count: list.length, data: list });
+    const rawList = labId ? db.reviews.filter((r) => r.labId === labId) : db.reviews;
+    const actor = req.authUser;
+    const isAdmin = actor && (actor.role === 'SUPER_ADMIN' || actor.role === 'PHC_INSPECTOR');
+
+    const safeList = rawList.map((r) => {
+      const isOwner = Boolean(actor && r.patientUserId && r.patientUserId === actor.id);
+      if (isAdmin || isOwner) {
+        return r;
+      }
+      return {
+        id: r.id,
+        labId: r.labId,
+        bookingNumber: `LC-***-${r.bookingNumber.slice(-4)}`,
+        patientName: maskPersonName(r.patientName),
+        rating: r.rating,
+        punctualityRating: r.punctualityRating,
+        turnaroundRating: r.turnaroundRating,
+        comment: r.comment,
+        verifiedBooking: r.verifiedBooking,
+        createdAt: r.createdAt,
+      };
+    });
+
+    return res.json({ success: true, count: safeList.length, data: safeList });
   });
 
-  app.post('/api/reviews', requireRole('PATIENT'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/reviews', requireRole('PATIENT'), writeMutationLimiter, (req: AuthenticatedRequest, res: Response) => {
     const actor = req.authUser!;
     const { bookingNumber, rating, punctualityRating, turnaroundRating, comment } = req.body;
 
@@ -3315,6 +3730,46 @@ async function startServer() {
     return res.json({ success: true, data: branch });
   });
 
+  app.post('/api/lab/branches', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const actor = req.authUser!;
+    const targetLabId = actor.role === 'LAB_ADMIN' ? actor.labId : String(req.body?.labId || '');
+    const lab = db.laboratories.find((l) => l.id === targetLabId);
+    if (!lab) {
+      return res.status(404).json({ success: false, error: 'Laboratory not found' });
+    }
+    const { name, area, address, phone, operatingHours, homeCollectionFeePkr } = req.body || {};
+    const cleanName = String(name || '').trim();
+    const cleanArea = String(area || '').trim();
+    const cleanAddress = String(address || '').trim();
+    if (!cleanName || !cleanArea || !cleanAddress) {
+      return res.status(400).json({ success: false, error: 'Branch name, Lahore area, and street address are required.' });
+    }
+    if (lab.branches.some((b) => b.name.toLowerCase() === cleanName.toLowerCase())) {
+      return res.status(409).json({ success: false, error: `A branch named ${cleanName} already exists for ${lab.name}.` });
+    }
+    const fee = homeCollectionFeePkr !== undefined && homeCollectionFeePkr !== '' ? Number(homeCollectionFeePkr) : 0;
+    if (isNaN(fee) || fee < 0 || fee > 5000) {
+      return res.status(400).json({ success: false, error: 'Home collection fee must be between PKR 0 and PKR 5,000.' });
+    }
+
+    const newBranch: LabBranch = {
+      id: `br-${lab.slug}-${crypto.randomBytes(3).toString('hex')}`,
+      name: cleanName,
+      area: cleanArea,
+      address: cleanAddress,
+      phone: String(phone || lab.contactPhone).trim(),
+      operatingHours: String(operatingHours || '07:30 AM - 10:00 PM').trim(),
+      homeCollectionZones: [cleanArea, 'Lahore Division'],
+      homeCollectionFeePkr: fee,
+      isHeadquarters: false,
+    };
+
+    lab.branches.push(newBranch);
+    appendAudit(actor.name, actor.role, 'BRANCH_CREATED', `${lab.name}: ${cleanName} (${cleanArea})`);
+    saveDatabase();
+    return res.status(201).json({ success: true, data: newBranch });
+  });
+
   app.delete('/api/lab/branches/:branchId', requireRole('LAB_ADMIN', 'SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const actor = req.authUser!;
     const lab = db.laboratories.find((l) => l.branches.some((b) => b.id === req.params.branchId));
@@ -3414,10 +3869,10 @@ async function startServer() {
         auditLogs: db.auditLogs,
         emailLogs: db.emailLogs,
         securityStatus: {
-          authAlgorithm: 'HMAC-SHA256 Signed Bearer Tokens',
-          passwordHashing: 'Node crypto scrypt + timingSafeEqual',
-          rateLimiter: 'Sliding Window (45 req / 5 min on /api/auth/*)',
-          pdfIntegrity: 'SHA-256 Digest + Strict Owner RBAC',
+          authAlgorithm: 'Signed Session Tokens + Logout Revocation',
+          passwordHashing: 'Salted Encrypted Credentials',
+          rateLimiter: 'Multi-Tier Rate & Lockout Protection',
+          pdfIntegrity: 'SHA-256 Checksum + Authenticated Delivery',
         },
         lahoreCoverage: {
           verifiedLabsCount: db.laboratories.filter((l) => l.verificationStatus === 'VERIFIED').length,
@@ -3496,6 +3951,97 @@ async function startServer() {
     appendAudit(req.authUser!.name, req.authUser!.role, 'LAB_SUBSCRIPTION_UPDATED', `${lab.name} -> ${tier} (PKR ${lab.monthlySaasFeePkr}/mo)`);
     saveDatabase();
     return res.json({ success: true, data: lab });
+  });
+
+  app.post('/api/admin/labs', requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const {
+      name,
+      phcLicence,
+      accreditation,
+      tagline,
+      contactEmail,
+      contactPhone,
+      subscriptionTier,
+      hqBranchName,
+      hqArea,
+      hqAddress,
+      hqOperatingHours,
+      hqHomeCollectionFeePkr,
+    } = req.body || {};
+
+    const cleanName = String(name || '').trim();
+    const cleanPhc = String(phcLicence || '').trim();
+    const cleanArea = String(hqArea || '').trim();
+    const cleanAddress = String(hqAddress || '').trim();
+    if (!cleanName || cleanName.length < 3 || !cleanPhc || !cleanArea || !cleanAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Laboratory name, PHC licence number, HQ Lahore area, and street address are required.',
+      });
+    }
+    if (db.laboratories.some((l) => l.phcLicence.toLowerCase() === cleanPhc.toLowerCase() || l.name.toLowerCase() === cleanName.toLowerCase())) {
+      return res.status(409).json({
+        success: false,
+        error: 'A laboratory with this name or PHC licence number is already registered.',
+      });
+    }
+
+    const tierMap: Record<LabSubscriptionTier, number> = {
+      STARTER: 0,
+      GROWTH: 18500,
+      ENTERPRISE: 45000,
+    };
+    const resolvedTier: LabSubscriptionTier =
+      subscriptionTier === 'STARTER' || subscriptionTier === 'ENTERPRISE' ? subscriptionTier : 'GROWTH';
+    const hqFee = hqHomeCollectionFeePkr !== undefined && hqHomeCollectionFeePkr !== '' ? Number(hqHomeCollectionFeePkr) : 0;
+    if (isNaN(hqFee) || hqFee < 0 || hqFee > 5000) {
+      return res.status(400).json({ success: false, error: 'HQ home collection fee must be between PKR 0 and PKR 5,000.' });
+    }
+
+    const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'lab';
+    const labId = `lab-${slug}-${crypto.randomBytes(2).toString('hex')}`;
+    const hqName = String(hqBranchName || `${cleanName} Main HQ`).trim();
+    const cleanPhone = String(contactPhone || '+92 42 111 000 000').trim();
+    const cleanEmail = String(contactEmail || `info@${slug}.pk`).trim();
+
+    const newLab: LabEntity = {
+      id: labId,
+      name: cleanName,
+      slug,
+      tagline: String(tagline || `PHC-Verified Diagnostic Network · ${cleanArea}, Lahore`).trim(),
+      phcLicence: cleanPhc,
+      accreditation: String(accreditation || 'PHC Licensed Diagnostic Centre').trim(),
+      verificationStatus: 'VERIFIED',
+      verifiedAt: new Date().toISOString().slice(0, 10),
+      verifiedBy: req.authUser!.name,
+      headquarters: cleanAddress,
+      contactEmail: cleanEmail,
+      contactPhone: cleanPhone,
+      sampleCollectionTurnaround: 'Same-day reports for routine panels',
+      subscriptionTier: resolvedTier,
+      monthlySaasFeePkr: tierMap[resolvedTier],
+      dataConfidence: 'PARTNER_INTEGRATION',
+      dataSource: 'Super Admin Onboarding Registry',
+      notes: 'Onboarded via PHC Regulatory & Super Admin Console.',
+      branches: [
+        {
+          id: `br-${slug}-hq-${crypto.randomBytes(2).toString('hex')}`,
+          name: hqName,
+          area: cleanArea,
+          address: cleanAddress,
+          phone: cleanPhone,
+          operatingHours: String(hqOperatingHours || '07:00 AM - 11:00 PM').trim(),
+          homeCollectionZones: [cleanArea, 'Lahore Division'],
+          homeCollectionFeePkr: hqFee,
+          isHeadquarters: true,
+        },
+      ],
+    };
+
+    db.laboratories.push(newLab);
+    appendAudit(req.authUser!.name, req.authUser!.role, 'LAB_ONBOARDED', `${newLab.name} (${newLab.phcLicence})`);
+    saveDatabase();
+    return res.status(201).json({ success: true, data: newLab });
   });
 
   app.delete('/api/admin/labs/:id', requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res: Response) => {
@@ -3638,7 +4184,11 @@ async function startServer() {
   // GEMINI CLINICAL REPORT EXPLAINER (EN / UR)
   // ==========================================
 
-  app.post('/api/ai/explain', async (req: Request, res: Response) => {
+  app.post(
+    '/api/ai/explain',
+    requireRole('PATIENT', 'LAB_ADMIN', 'SUPER_ADMIN', 'PHC_INSPECTOR'),
+    aiExplainLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       const sanitizeClinicalText = (val: unknown) =>
         String(val || '')
@@ -3745,9 +4295,15 @@ Safety rules: Explain what these parameters measure and compare them calmly agai
     }
   });
 
+  app.use('/api', (_req: Request, res: Response) => {
+    return res.status(404).json({ success: false, error: 'API endpoint not found' });
+  });
+
   // ==========================================
   // VITE SPA MIDDLEWARE / PRODUCTION STATIC
   // ==========================================
+
+  const httpServer = http.createServer(app);
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
@@ -3756,13 +4312,16 @@ Safety rules: Explain what these parameters measure and compare them calmly agai
     });
   } else {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
+  httpServer.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`[LabConnect] Secure RBAC Full-Stack Server active at http://0.0.0.0:${PORT}`);
   });
 }

@@ -18,6 +18,8 @@ import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthModal } from './components/AuthModal';
 import { FamilyProfilesModal } from './components/FamilyProfilesModal';
+import { AppMotionProvider, PageTransition, AnimatedTabBar } from './components/ui/MotionPrimitives';
+import { Activity } from 'lucide-react';
 
 function resolveRouteFromPath(pathname: string): PortalRoute {
   if (pathname.startsWith('/patient')) return '/patient';
@@ -32,23 +34,16 @@ function SpecsShell() {
   const [subView, setSubView] = useState<'PRD' | 'ERD'>('PRD');
   return (
     <div className="space-y-4">
-      <div className="max-w-7xl mx-auto px-6 pt-6 flex items-center gap-2">
-        <button
-          onClick={() => setSubView('PRD')}
-          className={`px-4 py-2 rounded-xl text-xs font-semibold ${
-            subView === 'PRD' ? 'bg-[#0F5132] text-white' : 'bg-white border border-slate-200 text-slate-700'
-          }`}
-        >
-          Requirements & PRD
-        </button>
-        <button
-          onClick={() => setSubView('ERD')}
-          className={`px-4 py-2 rounded-xl text-xs font-semibold ${
-            subView === 'ERD' ? 'bg-[#0F5132] text-white' : 'bg-white border border-slate-200 text-slate-700'
-          }`}
-        >
-          Database Schema & ERD
-        </button>
+      <div className="max-w-7xl mx-auto px-4 md:px-6 pt-6">
+        <AnimatedTabBar
+          layoutId="specs-subview-tab"
+          activeId={subView}
+          onChange={setSubView}
+          items={[
+            { id: 'PRD', label: 'Requirements & PRD' },
+            { id: 'ERD', label: 'Database Schema & ERD' },
+          ]}
+        />
       </div>
       {subView === 'PRD' ? <RequirementsHub /> : <ArchitectureViewer />}
     </div>
@@ -60,10 +55,24 @@ function MainApp() {
     resolveRouteFromPath(typeof window !== 'undefined' ? window.location.pathname : '/')
   );
   const [patientTab, setPatientTab] = useState<'DISCOVER' | 'TRACKING' | 'REPORTS' | 'PROFILE'>('DISCOVER');
+  const [discoverySearchSeed, setDiscoverySearchSeed] = useState<string>('');
+  const [discoveryCategorySeed, setDiscoveryCategorySeed] = useState<string>('ALL');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [isFamilyModalOpen, setIsFamilyModalOpen] = useState<boolean>(false);
 
-  const navigate = useCallback((route: PortalRoute) => {
+  const navigate = useCallback((route: PortalRoute, options?: { searchTerm?: string; category?: string; tab?: 'DISCOVER' | 'TRACKING' | 'REPORTS' | 'PROFILE' }) => {
+    if (options?.searchTerm !== undefined) {
+      setDiscoverySearchSeed(options.searchTerm);
+    }
+    if (options?.category !== undefined) {
+      setDiscoveryCategorySeed(options.category);
+    }
+    if (options?.tab) {
+      setPatientTab(options.tab);
+    } else if (route === '/patient' && (options?.searchTerm !== undefined || options?.category !== undefined)) {
+      setPatientTab('DISCOVER');
+    }
+
     if (typeof window !== 'undefined' && window.location.pathname !== route) {
       window.history.pushState({}, '', route);
     }
@@ -80,72 +89,92 @@ function MainApp() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#FBFBF9] text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F8F8F3] text-[#202A27] flex flex-col">
       <Header
         currentRoute={currentRoute}
-        onNavigate={navigate}
+        onNavigate={(r) => navigate(r)}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onOpenFamily={() => setIsFamilyModalOpen(true)}
         patientTab={patientTab}
         onSelectPatientTab={setPatientTab}
       />
 
-      <main className="flex-1 pb-24 lg:pb-8">
-        {currentRoute === '/' && <PortalGateway onNavigate={navigate} />}
-        {currentRoute === '/patient' && (
-          <PatientPortalPreview
-            activeTab={patientTab}
-            onSelectTab={setPatientTab}
-            onOpenAuth={() => setIsAuthModalOpen(true)}
-            onOpenFamily={() => setIsFamilyModalOpen(true)}
-          />
-        )}
-        {currentRoute === '/lab' && <LabPortalPreview />}
-        {currentRoute === '/phlebotomist' && <PhlebotomistPortal />}
-        {currentRoute === '/admin' && <AdminPortalPreview />}
-        {currentRoute === '/specs' && <SpecsShell />}
+      <main className="flex-1 pb-24 lg:pb-10">
+        <PageTransition transitionKey={currentRoute}>
+          {currentRoute === '/' && (
+            <PortalGateway
+              onNavigate={(route, options) => navigate(route, options)}
+            />
+          )}
+          {currentRoute === '/patient' && (
+            <PatientPortalPreview
+              activeTab={patientTab}
+              onSelectTab={setPatientTab}
+              onOpenAuth={() => setIsAuthModalOpen(true)}
+              onOpenFamily={() => setIsFamilyModalOpen(true)}
+              initialSearchTerm={discoverySearchSeed}
+              initialCategory={discoveryCategorySeed}
+            />
+          )}
+          {currentRoute === '/lab' && <LabPortalPreview />}
+          {currentRoute === '/phlebotomist' && <PhlebotomistPortal />}
+          {currentRoute === '/admin' && <AdminPortalPreview />}
+          {currentRoute === '/specs' && <SpecsShell />}
+        </PageTransition>
       </main>
 
       <MobileBottomNav
         currentRoute={currentRoute}
-        onNavigate={navigate}
+        onNavigate={(r) => navigate(r)}
         activeTab={patientTab}
         onSelectTab={setPatientTab}
       />
       <OfflineIndicator />
 
-      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={() => navigate('/patient')}
+      />
       <FamilyProfilesModal isOpen={isFamilyModalOpen} onClose={() => setIsFamilyModalOpen(false)} />
 
-      <footer className="hidden lg:block border-t border-slate-200 bg-white py-8 px-6 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-slate-800 font-semibold">
-            <span className="w-5 h-5 rounded bg-[#0F5132] text-white flex items-center justify-center text-[10px] font-bold">
-              LC
+      <footer className="hidden lg:block border-t border-[#DCE4DE] bg-white py-10 px-6 text-xs text-[#737D78]">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-2.5 text-[#202A27] font-semibold">
+            <span className="w-6 h-6 rounded-md bg-[#174C3C] text-white flex items-center justify-center">
+              <Activity className="w-3.5 h-3.5" />
             </span>
-            <span>LabConnect Pakistan · Lahore Diagnostic Network</span>
+            <span>LabConnect Pakistan</span>
+            <span className="text-[#DCE4DE]">·</span>
+            <span className="text-[#737D78] font-normal">Lahore Diagnostic Network</span>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium text-slate-600">
-            <a href="/patient" onClick={(e) => { e.preventDefault(); navigate('/patient'); }} className="hover:text-slate-900">
-              Patient Portal
-            </a>
-            <a href="/lab" onClick={(e) => { e.preventDefault(); navigate('/lab'); }} className="hover:text-slate-900">
-              Laboratory SaaS
-            </a>
-            <a href="/phlebotomist" onClick={(e) => { e.preventDefault(); navigate('/phlebotomist'); }} className="hover:text-slate-900">
-              Home Samplers
-            </a>
-            <a href="/admin" onClick={(e) => { e.preventDefault(); navigate('/admin'); }} className="hover:text-slate-900">
-              PHC Admin
-            </a>
-            <a href="/specs" onClick={(e) => { e.preventDefault(); navigate('/specs'); }} className="hover:text-slate-900">
-              System Specs & ERD
-            </a>
-          </div>
+          {currentRoute === '/' || currentRoute === '/patient' ? (
+            <div className="flex flex-wrap items-center justify-center gap-6 text-xs font-medium text-[#737D78]">
+              <a href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }} className="hover:text-[#174C3C] transition-colors">
+                Diagnostic Marketplace
+              </a>
+              <a href="/patient" onClick={(e) => { e.preventDefault(); navigate('/patient'); }} className="hover:text-[#174C3C] transition-colors">
+                Patient Portal
+              </a>
+              <a href="#partners" onClick={(e) => { if (currentRoute !== '/') { e.preventDefault(); navigate('/'); } }} className="hover:text-[#174C3C] transition-colors">
+                Verified Lahore Labs
+              </a>
+              <a href="#passport" onClick={(e) => { if (currentRoute !== '/') { e.preventDefault(); navigate('/'); } }} className="hover:text-[#174C3C] transition-colors">
+                Health Passport
+              </a>
+            </div>
+          ) : (
+            <div className="text-xs font-medium text-[#737D78]">
+              {currentRoute === '/lab' && 'Branch Lead Operations · Lahore Laboratory Network'}
+              {currentRoute === '/phlebotomist' && 'Phlebotomist Field Dispatch · Cold-Chain 2.0°C–8.0°C'}
+              {currentRoute === '/admin' && 'Punjab Healthcare Commission Regulatory Console'}
+              {currentRoute === '/specs' && 'Architecture & Database Specifications'}
+            </div>
+          )}
 
-          <div className="text-[11px] font-mono text-slate-400">
-            PHC Compliant · RBAC Isolated Routes
+          <div className="text-[11px] font-mono text-[#737D78]">
+            PHC Licensed · 2°C–8°C Cold-Chain · Verified Network
           </div>
         </div>
       </footer>
@@ -155,8 +184,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <MainApp />
-    </AuthProvider>
+    <AppMotionProvider>
+      <AuthProvider>
+        <MainApp />
+      </AuthProvider>
+    </AppMotionProvider>
   );
 }
