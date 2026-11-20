@@ -22,6 +22,25 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    flavorDimensions = ["portal"]
+    productFlavors {
+        patient {
+            dimension "portal"
+            applicationId "pk.labconnect.patient"
+            resValue "string", "app_name", "LabConnect"
+            resValue "string", "title_activity_main", "LabConnect"
+            resValue "string", "package_name", "pk.labconnect.patient"
+            resValue "string", "custom_url_scheme", "pk.labconnect.patient"
+        }
+        courier {
+            dimension "portal"
+            applicationId "pk.labconnect.courier"
+            resValue "string", "app_name", "LabConnect Courier"
+            resValue "string", "title_activity_main", "LabConnect Courier"
+            resValue "string", "package_name", "pk.labconnect.courier"
+            resValue "string", "custom_url_scheme", "pk.labconnect.courier"
+        }
+    }
 }
 
 repositories {

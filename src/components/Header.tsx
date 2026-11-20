@@ -4,9 +4,10 @@
  */
 
 import React from 'react';
-import { PortalRoute } from '../types';
+import { AppLanguage, PatientPortalTab, PortalRoute } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { Users, LogIn, LogOut, ArrowLeft, Activity } from 'lucide-react';
+import { getAppFlavor } from '../api/client';
+import { Users, LogIn, LogOut, ArrowLeft, Activity, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface HeaderProps {
@@ -14,18 +15,11 @@ interface HeaderProps {
   onNavigate: (route: PortalRoute) => void;
   onOpenAuth: () => void;
   onOpenFamily: () => void;
-  patientTab?: 'DISCOVER' | 'TRACKING' | 'REPORTS' | 'PROFILE';
-  onSelectPatientTab?: (tab: 'DISCOVER' | 'TRACKING' | 'REPORTS' | 'PROFILE') => void;
+  patientTab?: PatientPortalTab;
+  onSelectPatientTab?: (tab: PatientPortalTab) => void;
+  language?: AppLanguage;
+  onToggleLanguage?: () => void;
 }
-
-const ROUTE_LABEL: Record<PortalRoute, string> = {
-  '/': 'Lahore Diagnostic Network',
-  '/patient': 'Patient Portal',
-  '/lab': 'Branch Lead Operations',
-  '/phlebotomist': 'Phlebotomist Courier App',
-  '/admin': 'PHC Regulatory Console',
-  '/specs': 'Architecture & Specs',
-};
 
 export const Header: React.FC<HeaderProps> = ({
   currentRoute,
@@ -34,10 +28,14 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenFamily,
   patientTab,
   onSelectPatientTab,
+  language = 'en',
+  onToggleLanguage,
 }) => {
   const { patientUser, labUser, phlebUser, adminUser, activeFamilyMember, logoutScope } = useAuth();
+  const appFlavor = getAppFlavor();
 
-  const isPatientApp = currentRoute === '/' || currentRoute === '/patient';
+  const isPatientApp = appFlavor !== 'courier' && (currentRoute === '/' || currentRoute === '/patient');
+  const isCourierBrand = appFlavor === 'courier' || currentRoute === '/phlebotomist';
 
   const activeUser =
     currentRoute === '/patient' || currentRoute === '/'
@@ -62,43 +60,36 @@ export const Header: React.FC<HeaderProps> = ({
       : null;
 
   return (
-    <header className="sticky top-0 z-40 bg-[#F8F8F3]/92 backdrop-blur-md border-b border-[#DCE4DE] pt-safe">
-      <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-4">
-        {/* Left Zone: Brand + Single-line Standalone App Context */}
-        <div className="flex items-center gap-3 min-w-0">
-          <a
-            href={isPatientApp ? '/' : currentRoute}
-            onClick={(e) => {
-              e.preventDefault();
-              if (isPatientApp) onNavigate('/');
-            }}
-            className="flex items-center gap-2.5 shrink-0 text-[#202A27] font-bold text-[17px] tracking-tight whitespace-nowrap group"
-          >
-            <span className="w-8 h-8 rounded-lg bg-[#174C3C] text-white flex items-center justify-center transition-transform duration-200 group-hover:scale-[1.03]">
-              <Activity className="w-4 h-4 stroke-[2.25]" />
-            </span>
-            <span>LabConnect</span>
-          </a>
-
-          <span className="text-[#DCE4DE] hidden sm:inline font-light" aria-hidden="true">/</span>
-          <span className="hidden sm:inline text-xs font-medium text-[#737D78] truncate">
-            {ROUTE_LABEL[currentRoute]}
+    <header className="sticky top-0 z-40 lc-glass border-b border-[#D9E9E5] pt-safe">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 h-16 flex items-center justify-between gap-3 md:gap-8">
+        {/* Zone 1: Clean Brand Wordmark */}
+        <a
+          href={isPatientApp ? '/' : currentRoute}
+          onClick={(e) => {
+            e.preventDefault();
+            if (isPatientApp) onNavigate('/');
+          }}
+          className="flex items-center gap-2.5 shrink-0 text-[#172C32] font-bold text-[17px] tracking-tight whitespace-nowrap group"
+        >
+          <span className="w-9 h-9 rounded-xl lc-gradient-ocean text-white flex items-center justify-center shadow-[0_6px_16px_-4px_rgba(8,127,140,0.45)] transition-transform duration-200 group-hover:scale-[1.04]">
+            <Activity className="w-4 h-4 stroke-[2.3] text-[#21D4C2]" />
           </span>
-        </div>
+          <span>{isCourierBrand ? 'LabConnect Courier' : 'LabConnect'}</span>
+        </a>
 
-        {/* Center Zone: Customer Landing Links OR Authenticated Patient Tabs */}
+        {/* Zone 2: Single-Line Navigation */}
         {currentRoute === '/' && (
-          <nav className="hidden lg:flex items-center gap-7 text-[13px] font-medium text-[#737D78]">
+          <nav className="hidden lg:flex items-center gap-7 text-[13px] font-medium text-[#556B70]">
             {[
               { href: '#how-it-works', label: 'How It Works' },
-              { href: '#partners', label: 'Lahore Labs' },
+              { href: '#partners', label: 'Verified Labs' },
               { href: '#passport', label: 'Health Passport' },
               { href: '#faq', label: 'FAQ' },
             ].map((link) => (
               <a
                 key={link.href}
                 href={link.href}
-                className="hover:text-[#174C3C] transition-colors whitespace-nowrap py-1"
+                className="hover:text-[#073B43] transition-colors whitespace-nowrap py-1"
               >
                 {link.label}
               </a>
@@ -107,29 +98,37 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {currentRoute === '/patient' && patientUser && onSelectPatientTab && (
-          <nav className="hidden lg:flex items-center gap-7 text-[13px] font-medium">
+          <nav className="hidden lg:flex items-center gap-6 text-[13px] font-medium">
             {[
-              { id: 'DISCOVER', label: 'Find & Book' },
-              { id: 'TRACKING', label: 'Track Sample' },
-              { id: 'REPORTS', label: 'PDF Reports' },
-              { id: 'PROFILE', label: 'Account' },
+              { id: 'DISCOVER' as PatientPortalTab, label: language === 'ur' ? 'ٹیسٹ تلاش کریں' : 'Find & Book' },
+              { id: 'TRACKING' as PatientPortalTab, label: language === 'ur' ? 'ٹریکنگ' : 'Track Sample' },
+              { id: 'REPORTS' as PatientPortalTab, label: language === 'ur' ? 'رپورٹس' : 'PDF Reports' },
+              {
+                id: 'INTELLIGENCE' as PatientPortalTab,
+                label: language === 'ur' ? 'اے آئی گائیڈ' : 'Intelligence',
+                isAi: true,
+              },
+              { id: 'PROFILE' as PatientPortalTab, label: language === 'ur' ? 'اکاؤنٹ' : 'Account' },
             ].map((item) => {
               const isActive = patientTab === item.id;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => onSelectPatientTab(item.id as typeof patientTab & string)}
-                  className={`relative py-2 whitespace-nowrap transition-colors ${
-                    isActive ? 'text-[#174C3C] font-semibold' : 'text-[#737D78] hover:text-[#202A27]'
+                  onClick={() => onSelectPatientTab(item.id)}
+                  className={`relative py-2 whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                    isActive
+                      ? 'text-[#073B43] font-semibold'
+                      : 'text-[#556B70] hover:text-[#172C32]'
                   }`}
                 >
+                  {item.isAi && <Sparkles className="w-3.5 h-3.5 text-[#087F8C]" />}
                   <span>{item.label}</span>
                   {isActive && (
                     <motion.span
                       layoutId="header-patient-tab"
                       transition={{ type: 'spring', stiffness: 460, damping: 36 }}
-                      className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#174C3C] rounded-full"
+                      className="absolute bottom-0 left-0 right-0 h-[2.5px] lc-gradient-aqua rounded-full"
                     />
                   )}
                 </button>
@@ -138,15 +137,26 @@ export const Header: React.FC<HeaderProps> = ({
           </nav>
         )}
 
-        {/* Right Zone: Strictly Role-Isolated Actions & Auth Controls */}
+        {/* Zone 3: Role-Isolated Actions & Auth Controls */}
         <div className="flex items-center gap-2 shrink-0">
+          {currentRoute === '/patient' && patientUser && onToggleLanguage && (
+            <button
+              type="button"
+              onClick={onToggleLanguage}
+              title="Switch English / Urdu interface"
+              className="hidden sm:inline-flex items-center px-2.5 py-1.5 text-xs font-semibold bg-[#F3F7F4] hover:bg-[#D9E9E5] text-[#073B43] rounded-lg border border-[#C8DDD7] min-h-[36px] whitespace-nowrap transition-colors"
+            >
+              {language === 'en' ? 'اردو' : 'EN'}
+            </button>
+          )}
+
           {currentRoute === '/patient' && patientUser && (
             <button
               type="button"
               onClick={onOpenFamily}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#E8EFE8] hover:bg-[#DCE7DC] text-[#174C3C] rounded-lg border border-[#28745B]/20 min-h-[36px] whitespace-nowrap transition-colors"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#D9E9E5]/70 hover:bg-[#D9E9E5] text-[#073B43] rounded-lg border border-[#C8DDD7] min-h-[36px] whitespace-nowrap transition-colors"
             >
-              <Users className="w-3.5 h-3.5" />
+              <Users className="w-3.5 h-3.5 text-[#087F8C]" />
               <span>
                 {activeFamilyMember
                   ? activeFamilyMember.name.split(' ')[0]
@@ -161,38 +171,50 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigate('/patient')}
-                  className="px-3.5 py-1.5 text-xs font-semibold bg-[#174C3C] hover:bg-[#28745B] text-white rounded-lg min-h-[36px] whitespace-nowrap transition-colors"
+                  className="px-3.5 py-1.5 text-xs font-semibold lc-gradient-ocean hover:brightness-110 text-white rounded-lg min-h-[36px] whitespace-nowrap transition-all shadow-2xs"
                 >
                   Open Patient Portal
                 </button>
               )}
               <div className="hidden md:flex items-center gap-2 text-right">
-                <span className="text-xs font-semibold text-[#202A27] max-w-[150px] truncate">{activeUser.name}</span>
-                <span className="text-[10px] font-mono text-[#737D78]">{activeUser.role}</span>
+                <span className="text-xs font-semibold text-[#172C32] max-w-[140px] truncate">{activeUser.name}</span>
+                <span className="text-[11px] font-medium text-[#087F8C]">
+                  {activeUser.role === 'PATIENT'
+                    ? 'Patient'
+                    : activeUser.role === 'LAB_ADMIN'
+                    ? 'Branch Lead'
+                    : activeUser.role === 'PHLEBOTOMIST'
+                    ? 'Field Courier'
+                    : activeUser.role === 'SUPER_ADMIN'
+                    ? 'Super Admin'
+                    : activeUser.role === 'PHC_INSPECTOR'
+                    ? 'PHC Inspector'
+                    : activeUser.role}
+                </span>
               </div>
               <button
                 type="button"
                 onClick={() => logoutScope(activeScope)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white hover:bg-[#E8EFE8]/60 text-[#202A27] rounded-lg border border-[#DCE4DE] min-h-[36px] whitespace-nowrap transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white hover:bg-[#D9E9E5]/50 text-[#172C32] rounded-lg border border-[#C8DDD7] min-h-[36px] whitespace-nowrap transition-colors"
               >
-                <LogOut className="w-3.5 h-3.5 text-[#737D78]" />
+                <LogOut className="w-3.5 h-3.5 text-[#087F8C]" />
                 <span className="hidden sm:inline">Sign Out</span>
               </button>
             </div>
           ) : currentRoute === '/' ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={onOpenAuth}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white hover:bg-[#E8EFE8]/60 text-[#202A27] rounded-lg border border-[#DCE4DE] min-h-[36px] whitespace-nowrap transition-colors"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold bg-white hover:bg-[#D9E9E5]/50 text-[#172C32] rounded-lg border border-[#C8DDD7] min-h-[36px] whitespace-nowrap transition-colors"
               >
-                <LogIn className="w-3.5 h-3.5 text-[#174C3C]" />
+                <LogIn className="w-3.5 h-3.5 text-[#087F8C]" />
                 <span>Sign In</span>
               </button>
               <button
                 type="button"
                 onClick={() => onNavigate('/patient')}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-[#174C3C] hover:bg-[#28745B] text-white rounded-lg min-h-[36px] whitespace-nowrap transition-colors active:scale-[0.98]"
+                className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-xs font-semibold lc-gradient-ocean hover:brightness-110 text-white rounded-lg min-h-[36px] whitespace-nowrap transition-all active:scale-[0.98]"
               >
                 <span>Patient Portal</span>
               </button>
@@ -201,7 +223,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('/')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#737D78] hover:text-[#202A27] bg-white border border-[#DCE4DE] rounded-lg min-h-[36px] whitespace-nowrap transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#556B70] hover:text-[#172C32] bg-white border border-[#C8DDD7] rounded-lg min-h-[36px] whitespace-nowrap transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Home</span>

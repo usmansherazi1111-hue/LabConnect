@@ -7,6 +7,10 @@ export type UserRole = 'PATIENT' | 'LAB_ADMIN' | 'PHLEBOTOMIST' | 'SUPER_ADMIN' 
 
 export type PortalRoute = '/' | '/patient' | '/lab' | '/phlebotomist' | '/admin' | '/specs';
 
+export type PatientPortalTab = 'DISCOVER' | 'TRACKING' | 'REPORTS' | 'INTELLIGENCE' | 'PROFILE';
+
+export type AppLanguage = 'en' | 'ur';
+
 export type PortalMode =
   | 'GATEWAY'
   | 'PATIENT_PORTAL'

@@ -4,7 +4,8 @@
  */
 
 import React from 'react';
-import { CheckCircle2, ShieldCheck, FileCheck, Layers, AlertCircle, ArrowRight } from 'lucide-react';
+import { CheckCircle2, ShieldCheck, FileCheck, ArrowRight } from 'lucide-react';
+import { AnimatedModal } from './ui/MotionPrimitives';
 
 interface PhaseSignoffModalProps {
   isOpen: boolean;
@@ -19,106 +20,105 @@ export const PhaseSignoffModal: React.FC<PhaseSignoffModalProps> = ({
   isApproved,
   onToggleApproval,
 }) => {
-  if (!isOpen) return null;
-
   const deliverables = [
-    { title: 'Product Requirements Document (PRD)', status: 'COMPLETED & VERIFIED' },
-    { title: 'Software Requirements Specification (SRS)', status: 'COMPLETED & VERIFIED' },
-    { title: 'Business Requirements Document (BRD)', status: 'COMPLETED & VERIFIED' },
-    { title: 'Normalized Database ERD & DDL (7 core tables)', status: 'COMPLETED & VERIFIED' },
-    { title: 'Requirements Traceability Matrix (50+ IDs)', status: 'COMPLETED & VERIFIED' },
-    { title: 'STRIDE Threat Model & Healthcare Privacy Matrix', status: 'COMPLETED & VERIFIED' },
-    { title: 'AI Feature & Safety Specification (Gemini 4 Hydrogen)', status: 'COMPLETED & VERIFIED' },
-    { title: 'Lahore Real Laboratory Directory (Chughtai, SKMCH, IDC, Excel)', status: 'ANCHORED & CONFIRMED' },
-    { title: 'Contradictions & Policy Resolutions (PHC, Prescriptions, Raast)', status: 'RESOLVED & DOCUMENTED' },
+    { title: 'Product Requirements Document (PRD)', status: 'VERIFIED' },
+    { title: 'Software Requirements Specification (SRS)', status: 'VERIFIED' },
+    { title: 'Business Requirements Document (BRD)', status: 'VERIFIED' },
+    { title: 'Normalized Database ERD & DDL (7 core tables)', status: 'VERIFIED' },
+    { title: 'Requirements Traceability Matrix (50+ IDs)', status: 'VERIFIED' },
+    { title: 'STRIDE Threat Model & Healthcare Privacy Matrix', status: 'VERIFIED' },
+    { title: 'AI Feature & Safety Specification', status: 'VERIFIED' },
+    { title: 'Lahore Real Laboratory Directory (Chughtai, SKMCH, IDC, Excel)', status: 'CONFIRMED' },
+    { title: 'Contradictions & Policy Resolutions (PHC, Prescriptions, Raast)', status: 'RESOLVED' },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden p-6 space-y-6">
-        <div className="flex items-start justify-between border-b border-slate-200 pb-4">
+    <AnimatedModal isOpen={isOpen} onClose={onClose} maxWidthClass="max-w-xl">
+      <div className="p-6 space-y-5">
+        <div className="flex items-start justify-between border-b border-[#D9E9E5] pb-4 gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-[#0F5132] flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-[#D9E9E5] text-[#073B43] flex items-center justify-center font-bold shrink-0">
               <FileCheck className="w-5 h-5" />
             </div>
             <div>
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-800">
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#087F8C]">
                 Phase 0 Milestone Gate
               </span>
-              <h3 className="text-lg font-bold text-slate-900">
-                Requirements Baseline & Architecture Sign-Off
+              <h3 className="text-lg font-extrabold text-[#172C32]">
+                Requirements Baseline &amp; Architecture Sign-Off
               </h3>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 text-sm font-semibold p-1"
+            className="text-[#556B70] hover:text-[#172C32] text-sm font-semibold p-1.5"
+            aria-label="Close sign-off modal"
           >
             ✕
           </button>
         </div>
 
-        {/* Deliverables Checklist */}
         <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
           {deliverables.map((item, index) => (
             <div
               key={index}
-              className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between text-xs"
+              className="p-2.5 rounded-xl bg-[#F3F7F4] border border-[#D9E9E5] flex items-center justify-between gap-2 text-xs"
             >
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                <span className="font-medium text-slate-800">{item.title}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <CheckCircle2 className="w-4 h-4 text-[#087F8C] shrink-0" />
+                <span className="font-medium text-[#172C32] truncate">{item.title}</span>
               </div>
-              <span className="text-[10px] font-mono text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded">
+              <span className="text-[10px] font-mono text-[#073B43] font-bold bg-[#D9E9E5] px-2 py-0.5 rounded-md shrink-0">
                 {item.status}
               </span>
             </div>
           ))}
         </div>
 
-        {/* Lahore Real Data Certification Note */}
-        <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 text-xs text-emerald-950 space-y-1">
-          <div className="font-bold flex items-center gap-1.5 text-emerald-900">
-            <ShieldCheck className="w-4 h-4 text-emerald-700" />
-            <span>Absolute Real-Data Verification Statement</span>
+        <div className="bg-[#D9E9E5]/60 border border-[#087F8C]/25 rounded-xl p-3.5 text-xs text-[#073B43] space-y-1">
+          <div className="font-bold flex items-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-[#087F8C]" />
+            <span>Real-Data Verification Statement</span>
           </div>
-          <p className="text-[11px] leading-relaxed text-emerald-900">
-            All initial diagnostic prices, branch addresses, and service zones are anchored on certified published 
-            catalogues of accredited Lahore laboratories. No synthetic clinical values are substituted for real medical statistics.
+          <p className="text-[11px] leading-relaxed text-[#172C32]/85">
+            All initial diagnostic prices, branch addresses, and service zones are anchored on published catalogues of
+            accredited Lahore laboratories.
           </p>
         </div>
 
-        {/* Action Controls */}
-        <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+        <div className="pt-2 border-t border-[#D9E9E5] flex items-center justify-between">
           <button
+            type="button"
             onClick={onClose}
-            className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2"
+            className="text-xs font-semibold text-[#556B70] hover:text-[#172C32] px-3 py-2"
           >
             Return to Review
           </button>
 
           <button
+            type="button"
             onClick={() => {
               onToggleApproval();
               onClose();
             }}
-            className={`px-5 py-2.5 rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center gap-2 ${
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
               isApproved
-                ? 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-300'
-                : 'bg-[#0F5132] text-white hover:bg-emerald-800 font-bold'
+                ? 'bg-[#F3F7F4] text-[#172C32] hover:bg-[#D9E9E5] border border-[#C8DDD7]'
+                : 'lc-gradient-ocean text-white hover:brightness-110'
             }`}
           >
             {isApproved ? (
               <span>Reopen Phase 0 for Revision</span>
             ) : (
               <>
-                <span>Approve Phase 0 & Authorize Phase 1</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>Approve Phase 0 &amp; Authorize Phase 1</span>
+                <ArrowRight className="w-4 h-4 text-[#21D4C2]" />
               </>
             )}
           </button>
         </div>
       </div>
-    </div>
+    </AnimatedModal>
   );
 };

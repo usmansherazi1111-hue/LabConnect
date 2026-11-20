@@ -5,14 +5,15 @@
 
 import React, { useState } from 'react';
 import { SPECIFICATION_DOCS, REQUIREMENTS_CATALOGUE, CONTRADICTIONS_AND_MISSING_REQUIREMENTS } from '../data/requirementsData';
-import { RequirementItem, RequirementModule, PriorityLevel } from '../types';
-import { Search, Download, CheckCircle, ShieldAlert, FileText, ChevronRight, Filter, AlertTriangle, Layers, ExternalLink } from 'lucide-react';
+import { RequirementItem } from '../types';
+import { Search, Download, ChevronRight, AlertTriangle } from 'lucide-react';
+import { AnimatedModal, AnimatedTabBar, LC_EASE } from './ui/MotionPrimitives';
+import { motion, AnimatePresence } from 'motion/react';
 
 export const RequirementsHub: React.FC = () => {
   const [selectedDocId, setSelectedDocId] = useState<string>('DOC-01-PRD');
   const [activeTab, setActiveTab] = useState<'DOCUMENTS' | 'TRACEABILITY_MATRIX' | 'CONTRADICTIONS_ANALYSIS'>('DOCUMENTS');
-  
-  // Traceability filters
+
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [moduleFilter, setModuleFilter] = useState<string>('ALL');
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
@@ -53,343 +54,346 @@ ${REQUIREMENTS_CATALOGUE.map(
   };
 
   return (
-    <div className="py-8 px-6 max-w-7xl mx-auto space-y-8">
+    <div className="py-6 sm:py-8 px-4 sm:px-6 max-w-7xl mx-auto space-y-6 sm:space-y-8 min-w-0">
       {/* Page Header */}
-      <div className="border-b border-slate-200 pb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800 uppercase tracking-wider mb-1">
+      <div className="bg-white border border-[#D9E9E5] rounded-2xl p-5 sm:p-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono font-semibold text-[#087F8C] uppercase tracking-wider mb-1">
             <span>Phase 0 Deliverable</span>
-            <span aria-hidden="true">·</span>
-            <span>Product Definition & Requirements Finalization</span>
+            <span className="text-[#C8DDD7]" aria-hidden="true">·</span>
+            <span>Product Definition &amp; Requirements</span>
           </div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
-            Requirements & Architecture Hub
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#172C32] tracking-tight">
+            Requirements &amp; Architecture Hub
           </h1>
-          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Formal Phase 0 baseline covering Product Requirements (PRD), Software Specifications (SRS), 
-            Business Modeling (BRD), normalized database schema, STRIDE threat models, and 
+          <p className="text-xs sm:text-sm text-[#556B70] mt-1.5 max-w-3xl leading-relaxed">
+            Formal Phase 0 baseline covering Product Requirements (PRD), Software Specifications (SRS),
+            Business Modeling (BRD), normalized database schema, STRIDE threat models, and
             Requirements Traceability Matrix with 50+ unique requirement identifiers.
           </p>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
           <button
+            type="button"
             onClick={handleExportMarkdown}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F5132] rounded-lg hover:bg-emerald-800 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white lc-gradient-ocean hover:brightness-110 rounded-xl transition-all shadow-xs min-h-[42px]"
           >
-            <Download className="w-4 h-4" />
-            <span>Export Phase 0 Specs (.MD)</span>
+            <Download className="w-4 h-4 text-[#21D4C2]" />
+            <span>Export Specs (.MD)</span>
           </button>
         </div>
       </div>
 
       {/* Primary Sub-Nav Controls */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-1">
-        <button
-          onClick={() => setActiveTab('DOCUMENTS')}
-          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
-            activeTab === 'DOCUMENTS'
-              ? 'bg-white border-t border-x border-slate-200 text-[#0F5132] shadow-xs'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          Specification Documents (20 Documents)
-        </button>
-        <button
-          onClick={() => setActiveTab('TRACEABILITY_MATRIX')}
-          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors flex items-center gap-2 ${
-            activeTab === 'TRACEABILITY_MATRIX'
-              ? 'bg-white border-t border-x border-slate-200 text-[#0F5132] shadow-xs'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <span>Requirements Traceability Matrix</span>
-          <span className="text-xs bg-emerald-100 text-emerald-800 font-mono px-2 py-0.5 rounded">
-            {REQUIREMENTS_CATALOGUE.length} IDs
-          </span>
-        </button>
-        <button
-          onClick={() => setActiveTab('CONTRADICTIONS_ANALYSIS')}
-          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors flex items-center gap-2 ${
-            activeTab === 'CONTRADICTIONS_ANALYSIS'
-              ? 'bg-white border-t border-x border-slate-200 text-[#0F5132] shadow-xs'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <span>Contradictions & Policy Resolutions</span>
-          <span className="text-xs bg-amber-100 text-amber-900 font-mono px-2 py-0.5 rounded">
-            3 Resolved
-          </span>
-        </button>
-      </div>
+      <AnimatedTabBar
+        layoutId="req-hub-subtabs"
+        activeId={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { id: 'DOCUMENTS', label: 'Specifications', count: SPECIFICATION_DOCS.length },
+          { id: 'TRACEABILITY_MATRIX', label: 'Traceability Matrix', count: REQUIREMENTS_CATALOGUE.length },
+          { id: 'CONTRADICTIONS_ANALYSIS', label: 'Policy Resolutions', count: CONTRADICTIONS_AND_MISSING_REQUIREMENTS.length },
+        ]}
+      />
 
-      {/* TAB 1: SPECIFICATION DOCUMENTS */}
-      {activeTab === 'DOCUMENTS' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Document Sidebar */}
-          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-2 py-1">
-              Phase 0 Formal Deliverables
-            </div>
-            <div className="space-y-1 max-h-[640px] overflow-y-auto pr-1">
-              {SPECIFICATION_DOCS.map((doc) => {
-                const isSelected = doc.id === selectedDocId;
-                return (
-                  <button
-                    key={doc.id}
-                    onClick={() => setSelectedDocId(doc.id)}
-                    className={`w-full text-left p-3 rounded-lg text-xs transition-colors flex items-start justify-between gap-2 ${
-                      isSelected
-                        ? 'bg-emerald-50 text-emerald-900 font-semibold border border-emerald-200'
-                        : 'hover:bg-slate-50 text-slate-700 border border-transparent'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-semibold text-slate-900 leading-tight">{doc.title}</div>
-                      <div className="text-slate-500 mt-1 line-clamp-1">{doc.summary}</div>
-                    </div>
-                    <span className="text-[10px] font-mono text-slate-400 shrink-0">v{doc.version.split('-')[0]}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Right Document Reader */}
-          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-8 shadow-xs">
-            <div className="border-b border-slate-200 pb-4 mb-6 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-mono font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                  {selectedDoc.id}
-                </span>
-                <h2 className="text-2xl font-bold text-slate-900 mt-2">{selectedDoc.title}</h2>
-                <p className="text-xs text-slate-500 mt-1">{selectedDoc.summary}</p>
+      <AnimatePresence mode="wait">
+        {/* TAB 1: SPECIFICATION DOCUMENTS */}
+        {activeTab === 'DOCUMENTS' && (
+          <motion.div
+            key="TAB_DOCS"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2, ease: LC_EASE }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"
+          >
+            {/* Left Document Sidebar */}
+            <div className="lg:col-span-4 min-w-0 bg-white border border-[#D9E9E5] rounded-2xl p-4 space-y-2">
+              <div className="text-xs font-bold uppercase tracking-wider text-[#556B70] px-2 py-1">
+                Phase 0 Formal Deliverables
               </div>
-              <div className="text-right text-xs text-slate-400 font-mono">
-                Status: Verified Approved
-              </div>
-            </div>
-
-            {/* Document Markdown Content */}
-            <div className="prose prose-slate max-w-none text-sm leading-relaxed space-y-4">
-              <pre className="whitespace-pre-wrap font-sans text-slate-800 bg-transparent p-0 border-0 overflow-x-auto">
-                {selectedDoc.contentMarkdown}
-              </pre>
-            </div>
-
-            {/* Linked Requirement Tags */}
-            {selectedDoc.relatedRequirementIds.length > 0 && (
-              <div className="mt-8 pt-4 border-t border-slate-200 flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-500">Traceable Requirement IDs:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedDoc.relatedRequirementIds.map((rid) => (
+              <div className="space-y-1.5 max-h-[420px] lg:max-h-[640px] overflow-y-auto pr-1">
+                {SPECIFICATION_DOCS.map((doc) => {
+                  const isSelected = doc.id === selectedDocId;
+                  return (
                     <button
-                      key={rid}
-                      onClick={() => {
-                        setSearchTerm(rid);
-                        setActiveTab('TRACEABILITY_MATRIX');
-                      }}
-                      className="text-xs font-mono bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-900 px-2 py-0.5 rounded border border-slate-200 transition-colors"
+                      key={doc.id}
+                      type="button"
+                      onClick={() => setSelectedDocId(doc.id)}
+                      className={`w-full text-left p-3 rounded-xl text-xs transition-all flex items-start justify-between gap-2 ${
+                        isSelected
+                          ? 'bg-[#D9E9E5]/65 text-[#073B43] font-semibold border border-[#087F8C]'
+                          : 'hover:bg-[#F3F7F4] text-[#172C32] border border-transparent'
+                      }`}
                     >
-                      {rid}
+                      <div className="min-w-0">
+                        <div className="font-bold text-[#172C32] leading-snug">{doc.title}</div>
+                        <div className="text-[#556B70] mt-1 line-clamp-1">{doc.summary}</div>
+                      </div>
+                      <span className="text-[10px] font-mono text-[#087F8C] shrink-0">
+                        v{doc.version.split('-')[0]}
+                      </span>
                     </button>
-                  ))}
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right Document Reader */}
+            <div className="lg:col-span-8 min-w-0 bg-white border border-[#D9E9E5] rounded-2xl p-5 sm:p-8">
+              <div className="border-b border-[#D9E9E5] pb-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-[11px] font-mono font-bold text-[#087F8C] bg-[#D9E9E5]/60 px-2.5 py-0.5 rounded-lg">
+                    {selectedDoc.id}
+                  </span>
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-[#172C32] mt-2 break-words">
+                    {selectedDoc.title}
+                  </h2>
+                  <p className="text-xs text-[#556B70] mt-1">{selectedDoc.summary}</p>
+                </div>
+                <div className="text-left sm:text-right text-xs text-[#087F8C] font-mono font-semibold shrink-0">
+                  Status: Verified Approved
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* TAB 2: TRACEABILITY MATRIX */}
-      {activeTab === 'TRACEABILITY_MATRIX' && (
-        <div className="space-y-6">
-          {/* Filter Bar */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3 flex-1 min-w-[280px]">
-              <div className="relative w-full max-w-md">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Filter by ID (AUTH-001, PAT-001) or title..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-700"
-                />
+              <div className="max-w-full overflow-x-auto text-xs sm:text-sm leading-relaxed">
+                <pre className="whitespace-pre-wrap break-words font-sans text-[#172C32] bg-transparent p-0 border-0 max-w-full">
+                  {selectedDoc.contentMarkdown}
+                </pre>
               </div>
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm('')}
-                  className="text-xs text-slate-500 hover:text-slate-800"
-                >
-                  Clear
-                </button>
+
+              {selectedDoc.relatedRequirementIds.length > 0 && (
+                <div className="mt-8 pt-4 border-t border-[#D9E9E5] flex flex-col sm:flex-row sm:items-center gap-2">
+                  <span className="text-xs font-semibold text-[#556B70] shrink-0">Traceable Requirement IDs:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedDoc.relatedRequirementIds.map((rid) => (
+                      <button
+                        key={rid}
+                        type="button"
+                        onClick={() => {
+                          setSearchTerm(rid);
+                          setActiveTab('TRACEABILITY_MATRIX');
+                        }}
+                        className="text-xs font-mono bg-[#F3F7F4] hover:bg-[#D9E9E5] text-[#073B43] px-2.5 py-1 rounded-lg border border-[#C8DDD7] transition-colors"
+                      >
+                        {rid}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
+          </motion.div>
+        )}
 
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-500 font-medium">Module:</span>
-                <select
-                  value={moduleFilter}
-                  onChange={(e) => setModuleFilter(e.target.value)}
-                  className="text-xs bg-slate-50 border border-slate-200 rounded px-2.5 py-1 text-slate-800"
-                >
-                  <option value="ALL">All Modules</option>
-                  <option value="AUTH">AUTH (Identity & RBAC)</option>
-                  <option value="PAT">PAT (Patient Discovery)</option>
-                  <option value="LAB">LAB (Laboratory SaaS)</option>
-                  <option value="BOOK">BOOK (Booking & Logistics)</option>
-                  <option value="REPORT">REPORT (Reports & Health Passport)</option>
-                  <option value="AI">AI (Intelligence & Safety)</option>
-                  <option value="SEC">SEC (Security & Privacy)</option>
-                  <option value="ADMIN">ADMIN (PHC & Compliance)</option>
-                  <option value="COMMERCIAL">COMMERCIAL (Subscriptions & Ledger)</option>
-                </select>
+        {/* TAB 2: TRACEABILITY MATRIX */}
+        {activeTab === 'TRACEABILITY_MATRIX' && (
+          <motion.div
+            key="TAB_MATRIX"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2, ease: LC_EASE }}
+            className="space-y-6 min-w-0"
+          >
+            <div className="bg-white border border-[#D9E9E5] rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="relative w-full max-w-md">
+                  <Search className="w-4 h-4 text-[#087F8C] absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Filter by ID (AUTH-001, PAT-001) or title..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs bg-[#F3F7F4] border border-[#C8DDD7] rounded-xl text-[#172C32] focus:outline-none focus:border-[#087F8C] focus:bg-white min-h-[40px]"
+                  />
+                </div>
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="text-xs font-semibold text-[#087F8C] hover:text-[#073B43] shrink-0"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-500 font-medium">Priority:</span>
-                <select
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                  className="text-xs bg-slate-50 border border-slate-200 rounded px-2.5 py-1 text-slate-800"
-                >
-                  <option value="ALL">All Priorities</option>
-                  <option value="P0_CRITICAL">P0 (Critical Launch Blocker)</option>
-                  <option value="P1_HIGH">P1 (High Priority)</option>
-                </select>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-[#556B70] font-medium">Module:</span>
+                  <select
+                    value={moduleFilter}
+                    onChange={(e) => setModuleFilter(e.target.value)}
+                    className="text-xs bg-[#F3F7F4] border border-[#C8DDD7] rounded-xl px-2.5 py-2 text-[#172C32]"
+                  >
+                    <option value="ALL">All Modules</option>
+                    <option value="AUTH">AUTH (Identity &amp; RBAC)</option>
+                    <option value="PAT">PAT (Patient Discovery)</option>
+                    <option value="LAB">LAB (Laboratory SaaS)</option>
+                    <option value="BOOK">BOOK (Booking &amp; Logistics)</option>
+                    <option value="REPORT">REPORT (Reports &amp; Health Passport)</option>
+                    <option value="AI">AI (Intelligence &amp; Safety)</option>
+                    <option value="SEC">SEC (Security &amp; Privacy)</option>
+                    <option value="ADMIN">ADMIN (PHC &amp; Compliance)</option>
+                    <option value="COMMERCIAL">COMMERCIAL (Subscriptions &amp; Ledger)</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-[#556B70] font-medium">Priority:</span>
+                  <select
+                    value={priorityFilter}
+                    onChange={(e) => setPriorityFilter(e.target.value)}
+                    className="text-xs bg-[#F3F7F4] border border-[#C8DDD7] rounded-xl px-2.5 py-2 text-[#172C32]"
+                  >
+                    <option value="ALL">All Priorities</option>
+                    <option value="P0_CRITICAL">P0 (Critical Launch Blocker)</option>
+                    <option value="P1_HIGH">P1 (High Priority)</option>
+                  </select>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Traceability Table */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
-                  <tr>
-                    <th className="py-3 px-4 w-28">ID</th>
-                    <th className="py-3 px-4 w-32">Module</th>
-                    <th className="py-3 px-4">Title & Description</th>
-                    <th className="py-3 px-4 w-28">Priority</th>
-                    <th className="py-3 px-4 w-24">Phase</th>
-                    <th className="py-3 px-4 w-28">Status</th>
-                    <th className="py-3 px-4 w-28">Test Ref</th>
-                    <th className="py-3 px-4 w-20 text-right">Details</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredRequirements.map((req) => (
-                    <tr
-                      key={req.id}
-                      onClick={() => setSelectedReq(req)}
-                      className="hover:bg-slate-50/80 cursor-pointer transition-colors"
-                    >
-                      <td className="py-3 px-4 font-mono font-semibold text-slate-900">{req.id}</td>
-                      <td className="py-3 px-4">
-                        <span className="text-[11px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
-                          {req.module}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-900">{req.title}</div>
-                        <div className="text-slate-500 line-clamp-1 mt-0.5">{req.description}</div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                            req.priority === 'P0_CRITICAL'
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                              : 'bg-amber-50 text-amber-800 border border-amber-200'
-                          }`}
-                        >
-                          {req.priority.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 font-mono text-slate-600">Phase {req.responsiblePhase}</td>
-                      <td className="py-3 px-4">
-                        <span className="text-[10px] font-mono text-slate-600">
-                          {req.status === 'IN_PROGRESS' ? 'Phase 0 Ready' : 'Planned'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 font-mono text-slate-500">{req.testCaseRef}</td>
-                      <td className="py-3 px-4 text-right">
-                        <ChevronRight className="w-4 h-4 text-slate-400 inline" />
-                      </td>
+            <div className="bg-white border border-[#D9E9E5] rounded-2xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#F3F7F4] border-b border-[#D9E9E5] text-[#556B70] font-semibold uppercase tracking-wider">
+                    <tr>
+                      <th className="py-3 px-4 w-28">ID</th>
+                      <th className="py-3 px-4 w-32">Module</th>
+                      <th className="py-3 px-4">Title &amp; Description</th>
+                      <th className="py-3 px-4 w-32">Priority</th>
+                      <th className="py-3 px-4 w-24">Phase</th>
+                      <th className="py-3 px-4 w-28">Status</th>
+                      <th className="py-3 px-4 w-28">Test Ref</th>
+                      <th className="py-3 px-4 w-16 text-right">View</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {filteredRequirements.length === 0 && (
-              <div className="py-12 text-center text-slate-500 text-xs">
-                No requirements match your active filter criteria.
+                  </thead>
+                  <tbody className="divide-y divide-[#D9E9E5]">
+                    {filteredRequirements.map((req) => (
+                      <tr
+                        key={req.id}
+                        onClick={() => setSelectedReq(req)}
+                        className="hover:bg-[#F3F7F4]/70 cursor-pointer transition-colors"
+                      >
+                        <td className="py-3 px-4 font-mono font-bold text-[#073B43]">{req.id}</td>
+                        <td className="py-3 px-4">
+                          <span className="text-[11px] font-mono bg-[#D9E9E5]/65 text-[#073B43] px-2 py-0.5 rounded-md font-semibold">
+                            {req.module}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-[#172C32]">{req.title}</div>
+                          <div className="text-[#556B70] line-clamp-1 mt-0.5">{req.description}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${
+                              req.priority === 'P0_CRITICAL'
+                                ? 'bg-[#FF927E]/25 text-[#9C2A1A] border-[#FF927E]'
+                                : 'bg-[#A5B9FF]/30 text-[#073B43] border-[#A5B9FF]/60'
+                            }`}
+                          >
+                            {req.priority === 'P0_CRITICAL' ? 'P0 Critical' : 'P1 High'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[#556B70]">Phase {req.responsiblePhase}</td>
+                        <td className="py-3 px-4">
+                          <span className="text-[10px] font-mono font-semibold text-[#087F8C]">
+                            {req.status === 'IN_PROGRESS' ? 'Phase 0 Ready' : 'Planned'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[#556B70]">{req.testCaseRef}</td>
+                        <td className="py-3 px-4 text-right">
+                          <ChevronRight className="w-4 h-4 text-[#087F8C] inline" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: CONTRADICTIONS & POLICY RESOLUTIONS */}
-      {activeTab === 'CONTRADICTIONS_ANALYSIS' && (
-        <div className="space-y-6">
-          <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-5 text-amber-950 text-xs space-y-2">
-            <div className="font-semibold text-sm text-amber-900 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-700" />
-              <span>Phase 0 Regulatory & Operational Conflict Analysis</span>
+              {filteredRequirements.length === 0 && (
+                <div className="py-12 text-center text-[#556B70] text-xs">
+                  No requirements match your active filter criteria.
+                </div>
+              )}
             </div>
-            <p>
-              In accordance with Section 3 of the Master Instructions, all ambiguous or conflicting business 
-              and legal rules for the Pakistani diagnostic ecosystem have been analyzed, reconciled, and documented 
-              with explicit operational decisions prior to code implementation.
-            </p>
-          </div>
+          </motion.div>
+        )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {CONTRADICTIONS_AND_MISSING_REQUIREMENTS.map((item) => (
-              <div key={item.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-mono font-bold text-slate-600">{item.id}</span>
-                    <span className="text-[10px] font-mono font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      RESOLVED
-                    </span>
+        {/* TAB 3: CONTRADICTIONS & POLICY RESOLUTIONS */}
+        {activeTab === 'CONTRADICTIONS_ANALYSIS' && (
+          <motion.div
+            key="TAB_CONTRADICTIONS"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2, ease: LC_EASE }}
+            className="space-y-6 min-w-0"
+          >
+            <div className="bg-[#A5B9FF]/20 border border-[#A5B9FF]/60 rounded-2xl p-5 text-[#172C32] text-xs space-y-2">
+              <div className="font-bold text-sm text-[#073B43] flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-[#087F8C]" />
+                <span>Phase 0 Regulatory &amp; Operational Conflict Analysis</span>
+              </div>
+              <p className="text-[#172C32]/90 leading-relaxed">
+                All ambiguous or conflicting business and legal rules for the Pakistani diagnostic ecosystem have been
+                analyzed, reconciled, and documented with explicit operational decisions prior to implementation.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {CONTRADICTIONS_AND_MISSING_REQUIREMENTS.map((item) => (
+                <div
+                  key={item.id}
+                  className="bg-white border border-[#D9E9E5] rounded-2xl p-5 flex flex-col justify-between space-y-4"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-mono font-bold text-[#087F8C]">{item.id}</span>
+                      <span className="text-[10px] font-mono font-bold text-[#172C32] bg-[#B9ED69]/55 px-2 py-0.5 rounded-md">
+                        RESOLVED
+                      </span>
+                    </div>
+                    <h3 className="font-bold text-[#172C32] text-sm mb-2">{item.topic}</h3>
+                    <div className="text-xs text-[#556B70] bg-[#F3F7F4] p-3 rounded-xl border border-[#D9E9E5]">
+                      <span className="font-bold text-[#172C32]">Problem Analysis: </span>
+                      {item.analysis}
+                    </div>
                   </div>
-                  <h3 className="font-semibold text-slate-900 text-sm mb-2">{item.topic}</h3>
-                  <div className="text-xs text-slate-600 mb-4 bg-slate-50 p-2.5 rounded border border-slate-100">
-                    <span className="font-semibold text-slate-700">Problem Analysis: </span>
-                    {item.analysis}
+
+                  <div className="text-xs text-[#073B43] bg-[#D9E9E5]/65 p-3.5 rounded-xl border border-[#087F8C]/25">
+                    <span className="font-bold text-[#073B43]">Architectural Resolution: </span>
+                    {item.resolution}
                   </div>
                 </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-                <div className="text-xs text-emerald-950 bg-emerald-50/80 p-3 rounded-lg border border-emerald-200">
-                  <span className="font-bold text-[#0F5132]">Architectural Resolution: </span>
-                  {item.resolution}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Requirement Details Modal Drawer */}
-      {selectedReq && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-xl overflow-hidden p-6 space-y-6">
-            <div className="flex items-start justify-between border-b border-slate-200 pb-4">
-              <div>
+      {/* Requirement Details Modal */}
+      <AnimatedModal isOpen={Boolean(selectedReq)} onClose={() => setSelectedReq(null)} maxWidthClass="max-w-2xl">
+        {selectedReq && (
+          <div className="p-6 space-y-5">
+            <div className="flex items-start justify-between border-b border-[#D9E9E5] pb-4 gap-3">
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono font-bold text-[#0F5132] bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200">
+                  <span className="text-xs font-mono font-bold text-[#073B43] bg-[#D9E9E5] px-2.5 py-0.5 rounded-lg">
                     {selectedReq.id}
                   </span>
-                  <span className="text-xs font-mono text-slate-500">Module: {selectedReq.module}</span>
+                  <span className="text-xs font-mono text-[#556B70]">Module: {selectedReq.module}</span>
                 </div>
-                <h3 className="text-lg font-bold text-slate-900 mt-2">{selectedReq.title}</h3>
+                <h3 className="text-lg font-extrabold text-[#172C32] mt-2">{selectedReq.title}</h3>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedReq(null)}
-                className="text-slate-400 hover:text-slate-700 text-sm font-semibold p-1"
+                className="text-[#556B70] hover:text-[#172C32] text-sm font-semibold p-1.5"
+                aria-label="Close requirement specification"
               >
                 ✕
               </button>
@@ -397,19 +401,17 @@ ${REQUIREMENTS_CATALOGUE.map(
 
             <div className="space-y-4 text-xs">
               <div>
-                <div className="font-semibold text-slate-700 uppercase tracking-wider text-[10px] mb-1">
-                  Description
-                </div>
-                <p className="text-slate-800 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">
+                <div className="font-bold text-[#556B70] uppercase tracking-wider text-[10px] mb-1">Description</div>
+                <p className="text-[#172C32] leading-relaxed bg-[#F3F7F4] p-3.5 rounded-xl border border-[#D9E9E5]">
                   {selectedReq.description}
                 </p>
               </div>
 
               <div>
-                <div className="font-semibold text-slate-700 uppercase tracking-wider text-[10px] mb-1">
+                <div className="font-bold text-[#556B70] uppercase tracking-wider text-[10px] mb-1">
                   Acceptance Criteria (Mandatory Pass Gates)
                 </div>
-                <ul className="space-y-1.5 list-disc pl-5 text-slate-800">
+                <ul className="space-y-1.5 list-disc pl-5 text-[#172C32]">
                   {selectedReq.acceptanceCriteria.map((c, i) => (
                     <li key={i}>{c}</li>
                   ))}
@@ -417,37 +419,38 @@ ${REQUIREMENTS_CATALOGUE.map(
               </div>
 
               <div>
-                <div className="font-semibold text-slate-700 uppercase tracking-wider text-[10px] mb-1">
-                  Security & Threat Defense
+                <div className="font-bold text-[#556B70] uppercase tracking-wider text-[10px] mb-1">
+                  Security &amp; Threat Defense
                 </div>
-                <div className="bg-rose-50 text-rose-950 p-3 rounded-lg border border-rose-200">
+                <div className="bg-[#FF927E]/20 text-[#172C32] p-3.5 rounded-xl border border-[#FF927E]">
                   {selectedReq.securityImplications}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200 text-slate-600">
+              <div className="grid grid-cols-2 gap-4 pt-3 border-t border-[#D9E9E5] text-[#556B70]">
                 <div>
-                  <span className="text-[10px] uppercase font-semibold text-slate-400">Responsible Phase:</span>
-                  <div className="font-mono font-semibold text-slate-800">Phase {selectedReq.responsiblePhase}</div>
+                  <span className="text-[10px] uppercase font-semibold">Responsible Phase:</span>
+                  <div className="font-mono font-bold text-[#172C32]">Phase {selectedReq.responsiblePhase}</div>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-semibold text-slate-400">Automated Test Case:</span>
-                  <div className="font-mono font-semibold text-slate-800">{selectedReq.testCaseRef}</div>
+                  <span className="text-[10px] uppercase font-semibold">Automated Test Case:</span>
+                  <div className="font-mono font-bold text-[#172C32]">{selectedReq.testCaseRef}</div>
                 </div>
               </div>
             </div>
 
             <div className="pt-2 text-right">
               <button
+                type="button"
                 onClick={() => setSelectedReq(null)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800"
+                className="px-5 py-2.5 lc-gradient-ocean text-white rounded-xl text-xs font-semibold hover:brightness-110"
               >
                 Close Specification
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatedModal>
     </div>
   );
 };

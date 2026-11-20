@@ -13,6 +13,8 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import { GoogleGenAI } from '@google/genai';
+import { initializeApp as initFirebaseAdmin, getApps as getFirebaseAdminApps, getApp as getFirebaseAdminApp } from 'firebase-admin/app';
+import { getAuth as getFirebaseAdminAuth } from 'firebase-admin/auth';
 
 dotenv.config();
 
@@ -20,6 +22,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, 'data');
 const DB_FILE = path.resolve(DATA_DIR, 'labconnect-db.json');
 const AUTH_SECRET_FILE = path.resolve(DATA_DIR, '.auth-secret');
+
+function loadFirebaseProjectId(): string | undefined {
+  try {
+    const cfgPath = path.resolve(__dirname, 'firebase-applet-config.json');
+    if (fs.existsSync(cfgPath)) {
+      const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { projectId?: string };
+      return parsed.projectId;
+    }
+  } catch {
+    // ignore missing config
+  }
+  return process.env.FIREBASE_PROJECT_ID || undefined;
+}
+
+const firebaseProjectId = loadFirebaseProjectId();
+const firebaseAdminApp = firebaseProjectId
+  ? getFirebaseAdminApps().length
+    ? getFirebaseAdminApp()
+    : initFirebaseAdmin({ projectId: firebaseProjectId })
+  : null;
+const firebaseAdminAuth = firebaseAdminApp ? getFirebaseAdminAuth(firebaseAdminApp) : null;
 
 function resolveAuthSecret(): string {
   const fromEnv = (process.env.LABCONNECT_AUTH_SECRET || '').trim();
@@ -352,6 +375,7 @@ interface AuthenticatedRequest extends Request {
 }
 
 const OTP_STORE = new Map<string, OtpState>();
+const EMAIL_OTP_STORE = new Map<string, { email: string; otp: string; expiresAt: number; attempts: number; verifyAttempts: number; createdAt: number; portal: string }>();
 const REVOKED_TOKEN_JTIS = new Map<string, number>();
 const AUTH_LOCKOUTS = new Map<string, { fails: number; lockedUntil: number }>();
 
@@ -1757,7 +1781,7 @@ async function startServer() {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     if (
       req.path.startsWith('/api/auth') ||
       req.path.startsWith('/api/bookings') ||
@@ -1774,6 +1798,13 @@ async function startServer() {
   });
 
   const allowedOriginEnv = (process.env.ALLOWED_ORIGIN || '').trim();
+  const appUrlOrigin = (() => {
+    try {
+      return process.env.APP_URL ? new URL(process.env.APP_URL).origin : '';
+    } catch {
+      return '';
+    }
+  })();
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (
@@ -1781,8 +1812,10 @@ async function startServer() {
       (origin === 'https://localhost' ||
         origin === 'http://localhost' ||
         origin === 'capacitor://localhost' ||
+        origin === 'ionic://localhost' ||
         origin.startsWith('http://localhost:') ||
         origin.startsWith('http://127.0.0.1:') ||
+        (appUrlOrigin && origin === appUrlOrigin) ||
         (allowedOriginEnv && origin === allowedOriginEnv))
     ) {
       res.setHeader('Access-Control-Allow-Origin', origin);
@@ -2549,6 +2582,256 @@ async function startServer() {
       sessionToken: createSessionToken(adminUser),
       user: sanitizeUser(adminUser),
     });
+  });
+
+  // Auth Capabilities Status (No Secrets)
+  app.get('/api/auth/config', (_req: Request, res: Response) => {
+    return res.json({
+      success: true,
+      googleOAuthEnabled: Boolean(firebaseAdminAuth),
+      emailOtpSmtpEnabled: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
+      smsGatewayEnabled: Boolean(process.env.SMS_GATEWAY_API_KEY),
+    });
+  });
+
+  // Real-Time Email OTP Verification (Patient / Lab / Phlebotomist — strictly forbidden on Admin)
+  app.post('/api/auth/email-otp/send', otpSendLimiter, async (req: Request, res: Response) => {
+    const { email, portal } = req.body || {};
+    const targetPortal = String(portal || 'patient').toLowerCase();
+    if (targetPortal === 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'PHC Regulatory Console does not allow OTP sign-in.',
+      });
+    }
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      return res.status(400).json({ success: false, error: 'Valid email address is required.' });
+    }
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return res.status(503).json({
+        success: false,
+        code: 'SMTP_NOT_CONFIGURED',
+        error: 'SMTP email delivery is not configured yet. Use Sign in with Google above or configure SMTP_HOST, SMTP_USER, and SMTP_PASS.',
+      });
+    }
+
+    const lockKey = `email-otp:${cleanEmail}`;
+    const lock = isAuthLocked(lockKey);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: `Too many verification attempts. Retry in ${Math.ceil(lock.retryAfterSec / 60)} minute(s).`,
+      });
+    }
+
+    const now = Date.now();
+    const existing = EMAIL_OTP_STORE.get(cleanEmail);
+    if (existing && now - existing.createdAt < 15 * 60 * 1000 && existing.attempts >= 5) {
+      return res.status(429).json({
+        success: false,
+        error: 'Too many Email OTP requests. Try again in 15 minutes.',
+      });
+    }
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    try {
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT || 587),
+        secure: Number(process.env.SMTP_PORT || 587) === 465,
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      });
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM || `"LabConnect Security" <${process.env.SMTP_USER}>`,
+        to: cleanEmail,
+        subject: `[LabConnect] Your 6-Digit Verification Code: ${otp}`,
+        text: `Your LabConnect Lahore verification code is ${otp}. It expires in 5 minutes. Do not share this code with anyone.`,
+      });
+    } catch (err) {
+      console.error('[Email OTP] SMTP send error:', err);
+      return res.status(502).json({
+        success: false,
+        error: 'Unable to send verification email via SMTP. Check SMTP credentials or use Google Sign-In.',
+      });
+    }
+
+    EMAIL_OTP_STORE.set(cleanEmail, {
+      email: cleanEmail,
+      otp,
+      expiresAt: now + 300 * 1000,
+      attempts: existing && now - existing.createdAt < 15 * 60 * 1000 ? existing.attempts + 1 : 1,
+      verifyAttempts: 0,
+      createdAt: existing && now - existing.createdAt < 15 * 60 * 1000 ? existing.createdAt : now,
+      portal: targetPortal,
+    });
+
+    return res.json({
+      success: true,
+      message: `6-digit verification code sent to ${cleanEmail}`,
+      expiresInSeconds: 300,
+    });
+  });
+
+  app.post('/api/auth/email-otp/verify', otpVerifyLimiter, (req: Request, res: Response) => {
+    const { email, otp, portal, name, phone, labId, branchId, staffCode } = req.body || {};
+    const targetPortal = String(portal || 'patient').toLowerCase();
+    if (targetPortal === 'admin') {
+      return res.status(403).json({ success: false, error: 'Admin OTP login is disabled.' });
+    }
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!isValidEmail(cleanEmail) || !otp) {
+      return res.status(400).json({ success: false, error: 'Email address and 6-digit code are required.' });
+    }
+
+    const lockKey = `email-otp:${cleanEmail}`;
+    const lock = isAuthLocked(lockKey);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: `Verification locked. Retry in ${Math.ceil(lock.retryAfterSec / 60)} minute(s).`,
+      });
+    }
+
+    const record = EMAIL_OTP_STORE.get(cleanEmail);
+    if (!record) {
+      return res.status(400).json({ success: false, error: 'No active Email OTP found. Request a new code.' });
+    }
+    if (Date.now() > record.expiresAt) {
+      EMAIL_OTP_STORE.delete(cleanEmail);
+      return res.status(400).json({ success: false, error: 'Email OTP expired. Request a new code.' });
+    }
+    const cleanOtp = String(otp).trim();
+    if (!/^\d{6}$/.test(cleanOtp) || !constantTimeStringEqual(record.otp, cleanOtp)) {
+      record.verifyAttempts += 1;
+      if (record.verifyAttempts >= 5) {
+        EMAIL_OTP_STORE.delete(cleanEmail);
+        recordAuthFailure(lockKey, 1, 15 * 60 * 1000);
+        return res.status(429).json({ success: false, error: 'Too many failed code attempts. Locked for 15 minutes.' });
+      }
+      return res.status(400).json({ success: false, error: 'Incorrect 6-digit email verification code.' });
+    }
+
+    EMAIL_OTP_STORE.delete(cleanEmail);
+    clearAuthFailure(lockKey);
+
+    const role: UserRole =
+      targetPortal === 'lab' ? 'LAB_ADMIN' : targetPortal === 'phlebotomist' ? 'PHLEBOTOMIST' : 'PATIENT';
+
+    let user = db.users.find((u) => u.email.toLowerCase() === cleanEmail && u.role === role);
+    if (!user) {
+      const lab = db.laboratories.find((l) => l.id === labId) || db.laboratories[0];
+      const branch = lab.branches.find((b) => b.id === branchId) || lab.branches[0];
+      const cleanName = String(name || '').trim().length >= 3 ? String(name).trim().slice(0, 80) : cleanEmail.split('@')[0];
+      const cleanPhone = phone ? normalizePakistaniPhone(String(phone)) : '+923000000000';
+      user = {
+        id: `usr-${targetPortal}-${Date.now()}`,
+        name: cleanName,
+        phone: cleanPhone,
+        email: cleanEmail,
+        role,
+        ...(role === 'LAB_ADMIN' || role === 'PHLEBOTOMIST' ? { labId: lab.id, branchId: branch.id } : {}),
+        ...(role === 'PHLEBOTOMIST' && staffCode ? { staffCode: String(staffCode).trim().toUpperCase() } : {}),
+        area: branch?.area || 'Lahore, Punjab',
+        familyMembers: [],
+        createdAt: new Date().toISOString(),
+      };
+      db.users.push(user);
+    }
+
+    appendAudit(user.name, user.role, 'EMAIL_OTP_VERIFIED', user.email);
+    saveDatabase();
+
+    return res.json({
+      success: true,
+      sessionToken: createSessionToken(user),
+      user: sanitizeUser(user),
+    });
+  });
+
+  // Firebase Auth ID Token Exchange (Google OAuth / Phone SMS OTP) — Strictly excludes Admin
+  app.post('/api/auth/firebase', staffAuthLimiter, async (req: Request, res: Response) => {
+    if (!firebaseAdminAuth) {
+      return res.status(503).json({ success: false, error: 'Firebase verification is not initialized on server.' });
+    }
+    const { idToken, portal, labId, branchId, staffCode, fullName, phone } = req.body || {};
+    const targetPortal = String(portal || 'patient').toLowerCase();
+    if (targetPortal === 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'PHC Regulatory Console strictly requires password credentials; Google/OAuth is disabled.',
+      });
+    }
+    if (!idToken || typeof idToken !== 'string') {
+      return res.status(400).json({ success: false, error: 'Firebase ID token is required.' });
+    }
+
+    try {
+      const decoded = await firebaseAdminAuth.verifyIdToken(idToken);
+      const role: UserRole =
+        targetPortal === 'lab' ? 'LAB_ADMIN' : targetPortal === 'phlebotomist' ? 'PHLEBOTOMIST' : 'PATIENT';
+
+      const decodedEmail = (decoded.email || '').trim().toLowerCase();
+      const decodedPhone = decoded.phone_number ? normalizePakistaniPhone(decoded.phone_number) : phone ? normalizePakistaniPhone(String(phone)) : '';
+
+      let user = db.users.find(
+        (u) =>
+          u.role === role &&
+          ((decodedEmail && u.email.toLowerCase() === decodedEmail) ||
+            (decodedPhone && normalizePakistaniPhone(u.phone) === decodedPhone) ||
+            u.id === decoded.uid)
+      );
+
+      if (user && role === 'LAB_ADMIN' && labId && user.labId && user.labId !== labId) {
+        return res.status(403).json({
+          success: false,
+          error: `This Google account is registered to another laboratory (${db.laboratories.find((l) => l.id === user!.labId)?.name || user.labId}).`,
+        });
+      }
+
+      if (!user) {
+        const lab = db.laboratories.find((l) => l.id === labId) || db.laboratories[0];
+        const branch = lab?.branches.find((b) => b.id === branchId) || lab?.branches[0];
+        const resolvedName =
+          String(fullName || decoded.name || '').trim().slice(0, 80) ||
+          (decodedEmail ? decodedEmail.split('@')[0] : 'Verified User');
+        const cleanCode = staffCode ? String(staffCode).trim().toUpperCase() : `MOTO-${Math.floor(10 + Math.random() * 89)}`;
+
+        user = {
+          id: decoded.uid,
+          name: role === 'PHLEBOTOMIST' && !resolvedName.includes('(') ? `${resolvedName} (${cleanCode})` : resolvedName,
+          phone: decodedPhone || '+923000000000',
+          email: decodedEmail || `${decoded.uid}@verified.labconnect.pk`,
+          role,
+          ...(role === 'LAB_ADMIN' || role === 'PHLEBOTOMIST'
+            ? { labId: lab?.id || 'lab-chughtai', branchId: branch?.id || 'c-branch-jailrd' }
+            : {}),
+          ...(role === 'PHLEBOTOMIST' ? { staffCode: cleanCode } : {}),
+          area: branch?.area || 'Lahore, Punjab',
+          familyMembers: [],
+          createdAt: new Date().toISOString(),
+        };
+        db.users.push(user);
+      } else {
+        if (decodedEmail && !user.email) user.email = decodedEmail;
+        if (decodedPhone && (!user.phone || user.phone === '+923000000000')) user.phone = decodedPhone;
+      }
+
+      appendAudit(user.name, user.role, 'FIREBASE_OAUTH_SIGN_IN', `${targetPortal.toUpperCase()} (${user.email || user.phone})`);
+      saveDatabase();
+
+      return res.json({
+        success: true,
+        sessionToken: createSessionToken(user),
+        user: sanitizeUser(user),
+      });
+    } catch (err) {
+      console.error('[Firebase Auth] ID token verification failed:', err);
+      return res.status(401).json({ success: false, error: 'Google / Phone token could not be verified.' });
+    }
   });
 
   // Current Authenticated Profile

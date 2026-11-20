@@ -5,6 +5,10 @@ import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  const flavor = (process.env.VITE_APP_FLAVOR || 'web').trim().toLowerCase();
+  const isCourier = flavor === 'courier';
+  const isPatient = flavor === 'patient';
+
   return {
     plugins: [
       react(),
@@ -13,37 +17,41 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
-          id: '/',
-          name: 'LabConnect Lahore',
-          short_name: 'LabConnect',
-          description: 'Lahore diagnostic laboratory marketplace, cold-chain home sampling, live tracking & signed PDF reports.',
-          theme_color: '#174C3C',
-          background_color: '#F8F8F3',
+          id: isCourier ? '/phlebotomist' : '/',
+          name: isCourier ? 'LabConnect Courier' : 'LabConnect Lahore',
+          short_name: isCourier ? 'LabCourier' : 'LabConnect',
+          description: isCourier
+            ? 'Field phlebotomist dispatch, cold-chain monitoring & OTP sample verification.'
+            : 'Lahore diagnostic laboratory marketplace, cold-chain home sampling, live tracking & signed PDF reports.',
+          theme_color: '#073B43',
+          background_color: '#F3F7F4',
           display: 'standalone',
           orientation: 'portrait-primary',
-          start_url: '/',
+          start_url: isCourier ? '/phlebotomist' : '/',
           scope: '/',
           categories: ['medical', 'health', 'business'],
-          shortcuts: [
-            {
-              name: 'Patient Portal',
-              short_name: 'Patient',
-              url: '/patient',
-              icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
-            },
-            {
-              name: 'Courier Route',
-              short_name: 'Courier',
-              url: '/phlebotomist',
-              icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
-            },
-            {
-              name: 'Lab Console',
-              short_name: 'Lab Ops',
-              url: '/lab',
-              icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
-            },
-          ],
+          shortcuts: isCourier || isPatient
+            ? []
+            : [
+                {
+                  name: 'Patient Portal',
+                  short_name: 'Patient',
+                  url: '/patient',
+                  icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+                },
+                {
+                  name: 'Courier Route',
+                  short_name: 'Courier',
+                  url: '/phlebotomist',
+                  icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+                },
+                {
+                  name: 'Lab Console',
+                  short_name: 'Lab Ops',
+                  url: '/lab',
+                  icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+                },
+              ],
           icons: [
             {
               src: '/pwa-192x192.png',
@@ -69,6 +77,7 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
           skipWaiting: true,
           clientsClaim: true,
+          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           navigateFallback: '/index.html',
           navigateFallbackDenylist: [/^\/api\//],
@@ -126,7 +135,7 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {

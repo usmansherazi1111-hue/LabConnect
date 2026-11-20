@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APKs (Patient & Phlebotomist Courier)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [main, master]
 
 jobs:
-  build-apk:
+  build-apks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -23,25 +23,49 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Install dependencies & build web bundle
-        run: |
-          npm install --legacy-peer-deps
-          npm run build
-          npx cap sync android
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
 
       - name: Accept Android SDK Licenses
         run: |
           SDKM="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null || true
 
-      - name: Build Debug APK with Gradle
+      - name: Build & Sync Customer Patient Bundle
+        env:
+          VITE_APP_FLAVOR: patient
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || '' }}
+        run: |
+          npm run build:patient
+          npx cap sync android
+
+      - name: Assemble Customer Patient APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assemblePatientDebug --no-daemon
 
-      - name: Upload LabConnect APK Artifact
+      - name: Upload Customer Patient APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LabConnect-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: LabConnect-Patient-APK
+          path: android/app/build/outputs/apk/patient/debug/app-patient-debug.apk
+
+      - name: Build & Sync Phlebotomist Courier Bundle
+        env:
+          VITE_APP_FLAVOR: courier
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || '' }}
+        run: |
+          npm run build:courier
+          npx cap sync android
+
+      - name: Assemble Phlebotomist Courier APK
+        working-directory: android
+        run: |
+          ./gradlew assembleCourierDebug --no-daemon
+
+      - name: Upload Phlebotomist Courier APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LabConnect-Phlebotomist-Courier-APK
+          path: android/app/build/outputs/apk/courier/debug/app-courier-debug.apk

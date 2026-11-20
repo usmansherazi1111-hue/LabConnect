@@ -8,15 +8,19 @@
     --font-mono: 'JetBrains Mono', monospace;
     --font-urdu: 'Noto Naskh Arabic', 'DM Sans', system-ui, sans-serif;
 
-    --lc-forest: #174C3C;
-    --lc-botanical: #28745B;
-    --lc-teal: #4C9184;
-    --lc-cream: #F8F8F3;
-    --lc-sage: #E8EFE8;
-    --lc-charcoal: #202A27;
-    --lc-stone: #737D78;
+    /* Mandatory LabConnect 2026 Design System */
+    --lc-ocean: #073B43;
+    --lc-teal: #087F8C;
+    --lc-aqua: #21D4C2;
+    --lc-lime: #B9ED69;
+    --lc-periwinkle: #A5B9FF;
+    --lc-coral: #FF927E;
+    --lc-cloud: #F3F7F4;
+    --lc-midnight: #172C32;
+    --lc-mint: #D9E9E5;
     --lc-white: #FFFFFF;
-    --lc-border: #DCE4DE;
+    --lc-border: #C8DDD7;
+    --lc-muted: #556B70;
   }
 
   html {
@@ -25,8 +29,8 @@
 
   body {
     font-family: var(--font-body);
-    background-color: var(--lc-cream);
-    color: var(--lc-charcoal);
+    background-color: var(--lc-cloud);
+    color: var(--lc-midnight);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior-y: contain;
@@ -36,14 +40,57 @@
     touch-action: manipulation;
   }
 
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--lc-aqua);
+    outline-offset: 2px;
+  }
+
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
   }
 
   h1, h2, h3 {
     text-wrap: balance;
   }
+}
+
+/* Purposeful brand gradients — used selectively for focal heroes, charts & key highlights */
+.lc-gradient-ocean {
+  background: linear-gradient(135deg, #073B43 0%, #087F8C 100%);
+}
+
+.lc-gradient-midnight {
+  background: linear-gradient(145deg, #073B43 0%, #172C32 100%);
+}
+
+.lc-gradient-aqua {
+  background: linear-gradient(135deg, #087F8C 0%, #21D4C2 100%);
+}
+
+.lc-gradient-vital {
+  background: linear-gradient(135deg, #21D4C2 0%, #B9ED69 100%);
+}
+
+.lc-gradient-ai {
+  background: linear-gradient(135deg, rgba(165, 185, 255, 0.28) 0%, rgba(33, 212, 194, 0.22) 100%);
+}
+
+/* Subtle glassmorphism for overlays & floating surfaces */
+.lc-glass {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.lc-glass-dark {
+  background: rgba(7, 59, 67, 0.76);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .font-urdu {
@@ -56,14 +103,13 @@
 }
 
 .pb-safe {
-  padding-bottom: max(0.4rem, env(safe-area-inset-bottom));
+  padding-bottom: max(0.45rem, env(safe-area-inset-bottom));
 }
 
 .pt-safe {
   padding-top: env(safe-area-inset-top);
 }
 
-/* Subtle calm skeleton shimmer */
 @keyframes lc-shimmer {
   0% {
     background-position: -200% 0;
@@ -74,7 +120,7 @@
 }
 
 .lc-skeleton {
-  background: linear-gradient(90deg, #eff3ef 25%, #e4ece5 50%, #eff3ef 75%);
+  background: linear-gradient(90deg, #eaf2ef 25%, #d9e9e5 50%, #eaf2ef 75%);
   background-size: 200% 100%;
   animation: lc-shimmer 1.6s ease-in-out infinite;
 }
@@ -85,11 +131,11 @@
   }
   .lc-skeleton {
     animation: none;
-    background: #e8efe8;
+    background: #d9e9e5;
   }
 }
 
-/* Custom subtle scrollbars */
+/* Clean custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -98,9 +144,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #c5d0c9;
+  background: #b9d2cb;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #737D78;
+  background: #087F8C;
 }

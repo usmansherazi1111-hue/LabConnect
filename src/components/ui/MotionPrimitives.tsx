@@ -27,10 +27,10 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
     <AnimatePresence mode="wait">
       <motion.div
         key={transitionKey}
-        initial={{ opacity: 0, y: 8 }}
+        initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -6 }}
-        transition={{ duration: 0.22, ease: LC_EASE }}
+        transition={{ duration: 0.24, ease: LC_EASE }}
         className={className}
       >
         {children}
@@ -72,24 +72,24 @@ export const AnimatedModal: React.FC<AnimatedModalProps> = ({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
           onClick={onClose}
-          className={`fixed inset-0 z-50 bg-[#202A27]/45 backdrop-blur-[2px] flex ${
+          className={`fixed inset-0 z-50 bg-[#172C32]/50 backdrop-blur-[3px] flex ${
             mobileBottomSheet ? 'items-end sm:items-center p-0 sm:p-4' : 'items-center p-4'
           } justify-center overflow-y-auto`}
           role="dialog"
           aria-modal="true"
         >
           <motion.div
-            initial={{ opacity: 0, y: mobileBottomSheet ? 24 : 12, scale: 0.985 }}
+            initial={{ opacity: 0, y: mobileBottomSheet ? 26 : 14, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: mobileBottomSheet ? 20 : 8, scale: 0.985 }}
-            transition={{ duration: 0.22, ease: LC_EASE }}
+            transition={{ duration: 0.24, ease: LC_EASE }}
             onClick={(e) => e.stopPropagation()}
-            className={`w-full ${maxWidthClass} bg-white border border-[#DCE4DE] shadow-[0_24px_60px_-15px_rgba(23,76,60,0.18)] ${
+            className={`w-full ${maxWidthClass} bg-white border border-[#D9E9E5] shadow-[0_28px_72px_-16px_rgba(7,59,67,0.28)] ${
               mobileBottomSheet ? 'rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto' : 'rounded-2xl my-auto'
             }`}
           >
             {mobileBottomSheet && (
-              <div className="w-10 h-1 bg-[#DCE4DE] rounded-full mx-auto mt-3 sm:hidden" />
+              <div className="w-10 h-1 bg-[#D9E9E5] rounded-full mx-auto mt-3 sm:hidden" />
             )}
             {children}
           </motion.div>
@@ -125,7 +125,7 @@ export function AnimatedTabBar<T extends string>({
 }: AnimatedTabBarProps<T>) {
   if (variant === 'underline') {
     return (
-      <div className={`flex items-center gap-6 ${className}`}>
+      <div className={`flex items-center gap-6 overflow-x-auto ${className}`}>
         {items.map((item) => {
           const isActive = activeId === item.id;
           return (
@@ -133,20 +133,20 @@ export function AnimatedTabBar<T extends string>({
               key={item.id}
               type="button"
               onClick={() => onChange(item.id)}
-              className={`relative py-2 text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-                isActive ? 'text-[#174C3C] font-semibold' : 'text-[#737D78] hover:text-[#202A27]'
+              className={`relative py-2.5 text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                isActive ? 'text-[#073B43] font-semibold' : 'text-[#556B70] hover:text-[#172C32]'
               }`}
             >
               {item.icon}
               <span>{item.label}</span>
               {typeof item.count === 'number' && item.count > 0 && (
-                <span className="font-mono text-[11px] text-[#737D78]">({item.count})</span>
+                <span className="font-mono text-[11px] text-[#087F8C]">({item.count})</span>
               )}
               {isActive && (
                 <motion.span
                   layoutId={layoutId}
                   transition={{ type: 'spring', stiffness: 460, damping: 36 }}
-                  className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#174C3C] rounded-full"
+                  className="absolute bottom-0 left-0 right-0 h-[2.5px] lc-gradient-aqua rounded-full"
                 />
               )}
             </button>
@@ -158,7 +158,7 @@ export function AnimatedTabBar<T extends string>({
 
   return (
     <div
-      className={`inline-flex items-center gap-1 p-1 rounded-xl bg-[#E8EFE8]/75 border border-[#DCE4DE] overflow-x-auto max-w-full ${className}`}
+      className={`inline-flex items-center gap-1 p-1 rounded-xl bg-[#D9E9E5]/65 border border-[#C8DDD7] overflow-x-auto max-w-full ${className}`}
     >
       {items.map((item) => {
         const isActive = activeId === item.id;
@@ -168,14 +168,14 @@ export function AnimatedTabBar<T extends string>({
             type="button"
             onClick={() => onChange(item.id)}
             className={`relative px-3.5 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors min-h-[36px] flex items-center gap-1.5 ${
-              isActive ? 'text-white font-semibold' : 'text-[#202A27]/80 hover:text-[#174C3C]'
+              isActive ? 'text-white font-semibold' : 'text-[#172C32]/80 hover:text-[#073B43]'
             }`}
           >
             {isActive && (
               <motion.span
                 layoutId={layoutId}
                 transition={{ type: 'spring', stiffness: 440, damping: 34 }}
-                className="absolute inset-0 bg-[#174C3C] rounded-lg shadow-2xs"
+                className="absolute inset-0 lc-gradient-ocean rounded-lg shadow-xs"
               />
             )}
             <span className="relative z-10 flex items-center gap-1.5">
@@ -184,7 +184,7 @@ export function AnimatedTabBar<T extends string>({
               {typeof item.count === 'number' && (
                 <span
                   className={`font-mono text-[11px] tabular-nums ${
-                    isActive ? 'text-white/80' : 'text-[#737D78]'
+                    isActive ? 'text-[#21D4C2]' : 'text-[#556B70]'
                   }`}
                 >
                   {item.count}
@@ -259,12 +259,12 @@ export const EmptyState: React.FC<{
   description: string;
   action?: React.ReactNode;
 }> = ({ icon, title, description, action }) => (
-  <div className="bg-white border border-[#DCE4DE] rounded-2xl p-8 sm:p-10 text-center max-w-lg mx-auto space-y-3">
-    <div className="w-11 h-11 rounded-xl bg-[#E8EFE8] text-[#174C3C] flex items-center justify-center mx-auto">
+  <div className="bg-white border border-[#D9E9E5] rounded-2xl p-8 sm:p-10 text-center max-w-lg mx-auto space-y-3">
+    <div className="w-12 h-12 rounded-2xl lc-gradient-ai text-[#073B43] flex items-center justify-center mx-auto border border-[#D9E9E5]">
       {icon}
     </div>
-    <h3 className="text-base font-bold text-[#202A27]">{title}</h3>
-    <p className="text-xs text-[#737D78] leading-relaxed">{description}</p>
+    <h3 className="text-base font-bold text-[#172C32]">{title}</h3>
+    <p className="text-xs text-[#556B70] leading-relaxed">{description}</p>
     {action && <div className="pt-2">{action}</div>}
   </div>
 );

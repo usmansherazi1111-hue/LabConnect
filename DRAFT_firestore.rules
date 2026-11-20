@@ -1,0 +1,460 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ========================================================
+    // PHASE 3: HARDENED GLOBAL PRIMITIVES
+    // ========================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedAccount() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.phone_number is string
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'usmansherazi1111@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isStaffAccount() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['LAB_ADMIN', 'PHLEBOTOMIST'];
+    }
+
+    function isLabOperatorFor(labId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'LAB_ADMIN' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.labId == labId;
+    }
+
+    function isCourierAssigned(booking) {
+      return isSignedIn() && (
+        booking.phlebotomistUid == request.auth.uid ||
+        (request.auth.token.phone_number is string && booking.phlebotomistPhone == request.auth.token.phone_number) ||
+        (request.auth.token.email_verified == true && booking.phlebotomistEmail == request.auth.token.email)
+      );
+    }
+
+    // ========================================================
+    // HEALTH CHECK CONNECTION PROBE (test/connection)
+    // ========================================================
+    match /test/connection {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
+    // ========================================================
+    // ADMIN ALLOWLIST MARKERS
+    // ========================================================
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // ========================================================
+    // USERS (PII ISOLATED PER AUTH UID)
+    // ========================================================
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'name', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'name', 'phone', 'email', 'role', 'labId', 'branchId',
+          'staffCode', 'area', 'familyMembers', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.role in ['PATIENT', 'LAB_ADMIN', 'PHLEBOTOMIST']
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 24))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 160))
+        && (!('labId' in data) || (data.labId is string && data.labId.size() <= 64))
+        && (!('branchId' in data) || (data.branchId is string && data.branchId.size() <= 64))
+        && (!('staffCode' in data) || (data.staffCode is string && data.staffCode.size() <= 32))
+        && (!('area' in data) || (data.area is string && data.area.size() <= 120))
+        && (!('familyMembers' in data) || (data.familyMembers is list && data.familyMembers.size() <= 12))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+
+      // Prevent self-assigned LAB_ADMIN or admin privileges on client create
+      allow create: if isValidId(userId)
+        && isVerifiedAccount()
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().role in ['PATIENT', 'PHLEBOTOMIST']
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId)
+        && isVerifiedAccount()
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            isOwner(userId)
+            && incoming().role == existing().role
+            && (!('labId' in existing()) || incoming().labId == existing().labId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'phone', 'email', 'area', 'branchId', 'staffCode', 'familyMembers', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // ========================================================
+    // PUBLIC MARKETPLACE CATALOG (LABS, TESTS, PRICINGS)
+    // ========================================================
+    function isValidLaboratory(data) {
+      return data.keys().hasAll(['id', 'name', 'phcLicence', 'verificationStatus', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'name', 'slug', 'tagline', 'phcLicence', 'accreditation',
+          'verificationStatus', 'verifiedAt', 'verifiedBy', 'headquarters',
+          'contactEmail', 'contactPhone', 'sampleCollectionTurnaround',
+          'subscriptionTier', 'monthlySaasFeePkr', 'dataConfidence',
+          'dataSource', 'notes', 'branches', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 160
+        && data.phcLicence is string && data.phcLicence.size() >= 3 && data.phcLicence.size() <= 64
+        && data.verificationStatus in ['VERIFIED', 'REVOKED', 'PENDING_AUDIT', 'UNVERIFIED']
+        && (!('branches' in data) || (data.branches is list && data.branches.size() <= 30))
+        && data.updatedAt is timestamp;
+    }
+
+    match /laboratories/{labId} {
+      allow get: if isValidId(labId);
+      allow list: if true;
+      allow create: if isValidId(labId) && isAdmin() && isValidLaboratory(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isValidId(labId)
+        && isVerifiedAccount()
+        && isValidLaboratory(incoming())
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            isLabOperatorFor(labId)
+            && incoming().verificationStatus == existing().verificationStatus
+            && incoming().phcLicence == existing().phcLicence
+            && incoming().diff(existing()).affectedKeys().hasOnly(['branches', 'contactPhone', 'contactEmail', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(labId) && isAdmin();
+    }
+
+    function isValidTestPanel(data) {
+      return data.keys().hasAll(['id', 'code', 'name', 'category'])
+        && data.keys().hasOnly([
+          'id', 'code', 'name', 'category', 'sampleType', 'fastingHours',
+          'preparationInstructions', 'synonyms', 'description',
+          'commonNormalRange', 'defaultParameters', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.code is string && data.code.size() >= 2 && data.code.size() <= 32
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 160
+        && data.category in ['HEMATOLOGY', 'ENDOCRINOLOGY', 'BIOCHEMISTRY', 'INFECTIOUS_DISEASE', 'CARDIOLOGY', 'VITAMINS']
+        && (!('synonyms' in data) || (data.synonyms is list && data.synonyms.size() <= 20))
+        && (!('defaultParameters' in data) || (data.defaultParameters is list && data.defaultParameters.size() <= 20));
+    }
+
+    match /tests/{testId} {
+      allow get: if isValidId(testId);
+      allow list: if true;
+      allow create, update: if isValidId(testId) && isVerifiedAccount() && (isAdmin() || isStaffAccount()) && isValidTestPanel(incoming());
+      allow delete: if isValidId(testId) && isAdmin();
+    }
+
+    function isValidPricing(data) {
+      return data.keys().hasAll(['id', 'labId', 'testId', 'pricePkr', 'statedTurnaroundHours'])
+        && data.keys().hasOnly([
+          'id', 'labId', 'testId', 'pricePkr', 'discountedPricePkr',
+          'statedTurnaroundHours', 'effectiveFrom', 'lastConfirmedAt',
+          'verifiedBy', 'sourceUrl', 'homeCollectionAvailable', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.labId)
+        && isValidId(data.testId)
+        && data.pricePkr is number && data.pricePkr >= 50 && data.pricePkr <= 100000
+        && data.statedTurnaroundHours is number && data.statedTurnaroundHours >= 1 && data.statedTurnaroundHours <= 168
+        && (!('discountedPricePkr' in data) || (data.discountedPricePkr is number && data.discountedPricePkr >= 50 && data.discountedPricePkr <= data.pricePkr));
+    }
+
+    match /pricings/{pricingId} {
+      allow get: if isValidId(pricingId);
+      allow list: if true;
+      allow create: if isValidId(pricingId) && isVerifiedAccount() && isValidPricing(incoming()) && (isAdmin() || isLabOperatorFor(incoming().labId));
+      allow update: if isValidId(pricingId) && isVerifiedAccount() && isValidPricing(incoming()) && incoming().id == existing().id && incoming().labId == existing().labId && (isAdmin() || isLabOperatorFor(existing().labId));
+      allow delete: if isValidId(pricingId) && isVerifiedAccount() && (isAdmin() || isLabOperatorFor(existing().labId));
+    }
+
+    // ========================================================
+    // BOOKINGS (PATIENT OWNER + LAB OPERATOR + ASSIGNED COURIER)
+    // ========================================================
+    function isValidBooking(data) {
+      return data.keys().hasAll([
+          'id', 'bookingNumber', 'patientUserId', 'patientName', 'patientPhone',
+          'patientArea', 'labId', 'branchId', 'testIds', 'collectionType',
+          'scheduledDate', 'scheduledTimeSlot', 'status', 'totalPkr',
+          'homeCollectionFeePkr', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'bookingNumber', 'patientUserId', 'patientName', 'familyMemberId',
+          'familyMemberName', 'patientPhone', 'patientEmail', 'patientArea',
+          'streetAddress', 'labId', 'branchId', 'branchName', 'branchAddress',
+          'testIds', 'collectionType', 'scheduledDate', 'scheduledTimeSlot',
+          'status', 'totalPkr', 'homeCollectionFeePkr', 'phlebotomistUid',
+          'phlebotomistName', 'phlebotomistPhone', 'phlebotomistEmail', 'phlebotomistStatus',
+          'sampleBarcode', 'coldChainTempCelsius', 'fastingConfirmed',
+          'fastingAcknowledged', 'reportUrl', 'reportChecksum',
+          'emailDispatchedAt', 'trackingEvents', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.bookingNumber is string && data.bookingNumber.size() >= 6 && data.bookingNumber.size() <= 40
+        && isValidId(data.patientUserId)
+        && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 100
+        && data.patientPhone is string && data.patientPhone.size() >= 7 && data.patientPhone.size() <= 24
+        && data.patientArea is string && data.patientArea.size() >= 2 && data.patientArea.size() <= 120
+        && isValidId(data.labId)
+        && isValidId(data.branchId)
+        && data.testIds is list && data.testIds.size() >= 1 && data.testIds.size() <= 25
+        && data.testIds[0] is string
+        && data.collectionType in ['HOME_COLLECTION', 'BRANCH_VISIT']
+        && data.scheduledDate is string && data.scheduledDate.size() >= 8 && data.scheduledDate.size() <= 32
+        && data.scheduledTimeSlot is string && data.scheduledTimeSlot.size() >= 3 && data.scheduledTimeSlot.size() <= 64
+        && data.status in ['PENDING', 'ACCEPTED', 'DISPATCHED', 'SAMPLE_COLLECTED', 'PROCESSING', 'COMPLETED', 'CANCELLED']
+        && data.totalPkr is number && data.totalPkr >= 50 && data.totalPkr <= 500000
+        && data.homeCollectionFeePkr is number && data.homeCollectionFeePkr >= 0 && data.homeCollectionFeePkr <= 10000
+        && (!('phlebotomistUid' in data) || data.phlebotomistUid is string)
+        && (!('phlebotomistEmail' in data) || (data.phlebotomistEmail is string && data.phlebotomistEmail.size() <= 160))
+        && (!('phlebotomistStatus' in data) || data.phlebotomistStatus in ['PENDING_ASSIGNMENT', 'EN_ROUTE', 'ARRIVED', 'SAMPLE_COLLECTED', 'IN_TRANSIT', 'RECEIVED_AT_LAB'])
+        && (!('coldChainTempCelsius' in data) || (data.coldChainTempCelsius is number && data.coldChainTempCelsius >= 0 && data.coldChainTempCelsius <= 15))
+        && (!('trackingEvents' in data) || (data.trackingEvents is list && data.trackingEvents.size() <= 30))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /bookings/{bookingId} {
+      allow get: if isValidId(bookingId) && isSignedIn() && (
+        existing().patientUserId == request.auth.uid ||
+        isCourierAssigned(existing()) ||
+        isLabOperatorFor(existing().labId) ||
+        isAdmin()
+      );
+
+      // Pillar 8: Zero get()/exists() in allow list — verified directly via resource.data
+      allow list: if isSignedIn() && (
+        resource.data.patientUserId == request.auth.uid ||
+        resource.data.phlebotomistUid == request.auth.uid ||
+        (request.auth.token.phone_number is string && resource.data.phlebotomistPhone == request.auth.token.phone_number) ||
+        (request.auth.token.email_verified == true && resource.data.phlebotomistEmail == request.auth.token.email) ||
+        (request.auth.token.email == 'usmansherazi1111@gmail.com' && request.auth.token.email_verified == true)
+      );
+
+      allow create: if isValidId(bookingId)
+        && isVerifiedAccount()
+        && isValidBooking(incoming())
+        && incoming().patientUserId == request.auth.uid
+        && incoming().status == 'PENDING'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(bookingId)
+        && isVerifiedAccount()
+        && isValidBooking(incoming())
+        && incoming().id == existing().id
+        && incoming().bookingNumber == existing().bookingNumber
+        && incoming().patientUserId == existing().patientUserId
+        && incoming().labId == existing().labId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          // Terminal state guard: COMPLETED / CANCELLED cannot be mutated by patient or courier
+          (
+            !(existing().status in ['COMPLETED', 'CANCELLED']) && (
+              // Patient actions: Reschedule or Cancel own active booking
+              (
+                existing().patientUserId == request.auth.uid
+                && incoming().totalPkr == existing().totalPkr
+                && incoming().diff(existing()).affectedKeys().hasOnly([
+                  'scheduledDate', 'scheduledTimeSlot', 'status', 'trackingEvents', 'updatedAt'
+                ])
+                && (incoming().status == existing().status || incoming().status == 'CANCELLED')
+              ) ||
+              // Courier action: Update cold-chain & sample status checkpoints strictly on assigned stops
+              (
+                isCourierAssigned(existing())
+                && incoming().totalPkr == existing().totalPkr
+                && incoming().diff(existing()).affectedKeys().hasOnly([
+                  'status', 'phlebotomistStatus', 'sampleBarcode', 'coldChainTempCelsius',
+                  'fastingConfirmed', 'trackingEvents', 'updatedAt'
+                ])
+                && incoming().status in ['DISPATCHED', 'SAMPLE_COLLECTED', 'PROCESSING']
+              ) ||
+              // Lab Operator action: Accept, dispatch courier, publish report reference
+              (
+                isLabOperatorFor(existing().labId)
+                && incoming().diff(existing()).affectedKeys().hasOnly([
+                  'status', 'phlebotomistUid', 'phlebotomistName', 'phlebotomistPhone',
+                  'phlebotomistEmail', 'phlebotomistStatus', 'reportUrl', 'reportChecksum',
+                  'emailDispatchedAt', 'trackingEvents', 'updatedAt'
+                ])
+              )
+            )
+          )
+        );
+
+      allow delete: if isValidId(bookingId) && isVerifiedAccount() && (
+        isAdmin() ||
+        (existing().patientUserId == request.auth.uid && existing().status == 'CANCELLED') ||
+        (isLabOperatorFor(existing().labId) && existing().status == 'CANCELLED')
+      );
+    }
+
+    // ========================================================
+    // SIGNED DIAGNOSTIC REPORTS
+    // ========================================================
+    function isValidReport(data) {
+      return data.keys().hasAll(['id', 'bookingNumber', 'patientUserId', 'labId', 'patientName', 'checksumSha256', 'publishedAt'])
+        && data.keys().hasOnly([
+          'id', 'bookingNumber', 'patientUserId', 'labId', 'branchName',
+          'patientName', 'familyMemberId', 'familyMemberName', 'patientPhone',
+          'patientEmail', 'fileName', 'pdfUrl', 'checksumSha256',
+          'pathologistName', 'clinicalNotes', 'parameters', 'publishedAt',
+          'emailDispatchedAt', 'emailDispatchStatus'
+        ])
+        && isValidId(data.id)
+        && data.bookingNumber is string && data.bookingNumber.size() >= 6 && data.bookingNumber.size() <= 40
+        && isValidId(data.patientUserId)
+        && isValidId(data.labId)
+        && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 100
+        && data.checksumSha256 is string && data.checksumSha256.size() >= 16 && data.checksumSha256.size() <= 128
+        && (!('parameters' in data) || (data.parameters is list && data.parameters.size() <= 40))
+        && data.publishedAt is timestamp;
+    }
+
+    match /reports/{reportId} {
+      allow get: if isValidId(reportId) && isSignedIn() && (
+        existing().patientUserId == request.auth.uid ||
+        isLabOperatorFor(existing().labId) ||
+        isAdmin()
+      );
+
+      allow list: if isSignedIn() && (
+        resource.data.patientUserId == request.auth.uid ||
+        (request.auth.token.email == 'usmansherazi1111@gmail.com' && request.auth.token.email_verified == true)
+      );
+
+      allow create: if isValidId(reportId)
+        && isVerifiedAccount()
+        && isValidReport(incoming())
+        && incoming().publishedAt == request.time
+        && (isAdmin() || isLabOperatorFor(incoming().labId));
+
+      allow update, delete: if isValidId(reportId) && isAdmin();
+    }
+
+    // ========================================================
+    // VERIFIED LABORATORY REVIEWS
+    // ========================================================
+    function isValidReview(data) {
+      return data.keys().hasAll(['id', 'labId', 'bookingNumber', 'patientUserId', 'patientName', 'rating', 'comment', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'labId', 'bookingNumber', 'patientUserId', 'patientName',
+          'rating', 'punctualityRating', 'turnaroundRating', 'comment',
+          'verifiedBooking', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.labId)
+        && data.bookingNumber is string && data.bookingNumber.size() >= 6 && data.bookingNumber.size() <= 40
+        && isValidId(data.patientUserId)
+        && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 100
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.comment is string && data.comment.size() >= 3 && data.comment.size() <= 600
+        && data.createdAt is timestamp;
+    }
+
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId);
+      allow list: if true;
+      allow create: if isValidId(reviewId)
+        && isVerifiedAccount()
+        && isValidReview(incoming())
+        && incoming().patientUserId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(reviewId) && isVerifiedAccount() && (isAdmin() || existing().patientUserId == request.auth.uid);
+    }
+
+    // ========================================================
+    // USER-SCOPED NOTIFICATIONS
+    // ========================================================
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'targetUid', 'title', 'message', 'read', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'targetUid', 'recipientRole', 'targetLabId', 'title',
+          'message', 'category', 'relatedId', 'read', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.targetUid)
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 140
+        && data.message is string && data.message.size() >= 2 && data.message.size() <= 500
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && (existing().targetUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.targetUid == request.auth.uid;
+      allow create: if isValidId(notificationId)
+        && isVerifiedAccount()
+        && isValidNotification(incoming())
+        && incoming().createdAt == request.time
+        && (incoming().targetUid == request.auth.uid || isStaffAccount() || isAdmin());
+      allow update: if isValidId(notificationId)
+        && isVerifiedAccount()
+        && existing().targetUid == request.auth.uid
+        && isValidNotification(incoming())
+        && incoming().id == existing().id
+        && incoming().targetUid == existing().targetUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isValidId(notificationId) && isVerifiedAccount() && (existing().targetUid == request.auth.uid || isAdmin());
+    }
+  }
+}

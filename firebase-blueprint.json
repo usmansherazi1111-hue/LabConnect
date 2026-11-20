@@ -1,0 +1,444 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private authenticated user profile for Patient, Lab Lead, Phlebotomist, or Regulatory Admin.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["PATIENT", "LAB_ADMIN", "PHLEBOTOMIST"]
+        },
+        "labId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "branchId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "staffCode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "area": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "familyMembers": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "name", "role", "createdAt", "updatedAt"]
+    },
+    "Laboratory": {
+      "title": "Laboratory",
+      "description": "PHC-accredited diagnostic laboratory partner in Lahore with verified branch metadata.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "slug": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "tagline": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "phcLicence": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "verificationStatus": {
+          "type": "string",
+          "enum": ["VERIFIED", "REVOKED", "PENDING_AUDIT", "UNVERIFIED"]
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "phcLicence", "verificationStatus", "updatedAt"]
+    },
+    "DiagnosticTest": {
+      "title": "DiagnosticTest",
+      "description": "Standardized diagnostic pathology test panel definition.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 32
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "category": {
+          "type": "string",
+          "enum": ["HEMATOLOGY", "ENDOCRINOLOGY", "BIOCHEMISTRY", "INFECTIOUS_DISEASE", "CARDIOLOGY", "VITAMINS"]
+        },
+        "fastingHours": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "code", "name", "category"]
+    },
+    "TestPricing": {
+      "title": "TestPricing",
+      "description": "Published PKR diagnostic tariff linking a Lahore laboratory and test.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "labId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "testId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "pricePkr": {
+          "type": "number"
+        },
+        "statedTurnaroundHours": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "labId", "testId", "pricePkr", "statedTurnaroundHours"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Diagnostic booking requisition with cold-chain courier checkpoints and tracking history.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "bookingNumber": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 40
+        },
+        "patientUserId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "patientName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "patientPhone": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 24
+        },
+        "patientEmail": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "patientArea": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "streetAddress": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "labId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "branchId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "testIds": {
+          "type": "array"
+        },
+        "collectionType": {
+          "type": "string",
+          "enum": ["HOME_COLLECTION", "BRANCH_VISIT"]
+        },
+        "scheduledDate": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "scheduledTimeSlot": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "ACCEPTED", "DISPATCHED", "SAMPLE_COLLECTED", "PROCESSING", "COMPLETED", "CANCELLED"]
+        },
+        "totalPkr": {
+          "type": "number"
+        },
+        "homeCollectionFeePkr": {
+          "type": "number"
+        },
+        "phlebotomistUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "phlebotomistName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "phlebotomistPhone": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "phlebotomistStatus": {
+          "type": "string",
+          "enum": ["PENDING_ASSIGNMENT", "EN_ROUTE", "ARRIVED", "SAMPLE_COLLECTED", "IN_TRANSIT", "RECEIVED_AT_LAB"]
+        },
+        "sampleBarcode": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "coldChainTempCelsius": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "bookingNumber",
+        "patientUserId",
+        "patientName",
+        "patientPhone",
+        "patientArea",
+        "labId",
+        "branchId",
+        "testIds",
+        "collectionType",
+        "scheduledDate",
+        "scheduledTimeSlot",
+        "status",
+        "totalPkr",
+        "homeCollectionFeePkr",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DiagnosticReport": {
+      "title": "DiagnosticReport",
+      "description": "Pathologist-signed diagnostic report record linked to a patient booking.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "bookingNumber": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 40
+        },
+        "patientUserId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "labId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "patientName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "checksumSha256": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "bookingNumber", "patientUserId", "labId", "patientName", "checksumSha256", "publishedAt"]
+    },
+    "LabReview": {
+      "title": "LabReview",
+      "description": "Verified patient review tied to a completed booking.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "labId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "bookingNumber": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "patientUserId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "patientName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "rating": {
+          "type": "number"
+        },
+        "comment": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "labId", "bookingNumber", "patientUserId", "patientName", "rating", "comment", "createdAt"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "Scoped real-time alert for a patient or assigned lab/courier operator.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "targetUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "targetUid", "title", "message", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user account profile isolated per authenticated UID."
+    },
+    "/laboratories/{labId}": {
+      "schema": { "$ref": "#/entities/Laboratory" },
+      "description": "Public Lahore PHC-accredited laboratory catalog."
+    },
+    "/tests/{testId}": {
+      "schema": { "$ref": "#/entities/DiagnosticTest" },
+      "description": "Public diagnostic test panel directory."
+    },
+    "/pricings/{pricingId}": {
+      "schema": { "$ref": "#/entities/TestPricing" },
+      "description": "Public PKR diagnostic test tariffs per laboratory."
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Patient diagnostic appointments and courier cold-chain tracking."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/DiagnosticReport" },
+      "description": "Signed pathology reports scoped strictly to patient owner, issuing lab, or admin."
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/LabReview" },
+      "description": "Verified booking reviews submitted by authenticated patients."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/NotificationItem" },
+      "description": "User-scoped real-time notifications."
+    }
+  }
+}
